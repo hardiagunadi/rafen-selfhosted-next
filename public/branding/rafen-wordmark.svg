@@ -1,0 +1,22 @@
+<svg width="360" height="88" viewBox="0 0 360 88" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wordmarkBg" x1="8" y1="8" x2="80" y2="80" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B2A4A"/>
+      <stop offset="1" stop-color="#155E95"/>
+    </linearGradient>
+    <linearGradient id="wordmarkLine" x1="24" y1="24" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5EE4FF"/>
+      <stop offset="1" stop-color="#16A3D9"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="80" height="80" rx="18" fill="url(#wordmarkBg)"/>
+  <rect x="4.5" y="4.5" width="79" height="79" rx="17.5" stroke="#6BC8F5" stroke-opacity="0.35"/>
+  <path d="M25 60L40 47L51 53L61 35" stroke="url(#wordmarkLine)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="25" cy="60" r="5.8" fill="#16A3D9" stroke="#CFF5FF" stroke-width="1.8"/>
+  <circle cx="40" cy="47" r="5.8" fill="#16A3D9" stroke="#CFF5FF" stroke-width="1.8"/>
+  <circle cx="51" cy="53" r="5.8" fill="#16A3D9" stroke="#CFF5FF" stroke-width="1.8"/>
+  <circle cx="61" cy="35" r="5.8" fill="#84CC16" stroke="#E7FFD3" stroke-width="1.8"/>
+
+  <text x="102" y="42" fill="#0B2A4A" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="800" letter-spacing="2.2">RAFEN</text>
+  <text x="104" y="66" fill="#4D637D" font-family="Segoe UI, Arial, sans-serif" font-size="15" font-weight="600" letter-spacing="2.8">NETWORK OPS MANAGER</text>
+</svg>

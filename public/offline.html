@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline — Rafen</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #f4f7fb;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            text-align: center;
+            padding: 1rem;
+        }
+        .card {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 2.5rem 2rem;
+            box-shadow: 0 10px 22px rgba(15, 23, 42, 0.07);
+            max-width: 360px;
+            width: 100%;
+        }
+        .icon { font-size: 3rem; margin-bottom: 1rem; }
+        h2 { font-size: 1.3rem; margin-bottom: 0.6rem; }
+        p { color: #5b6b83; margin-bottom: 1.5rem; font-size: 0.95rem; line-height: 1.5; }
+        button {
+            background: #1367a4;
+            color: #fff;
+            border: none;
+            padding: 10px 28px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:hover { background: #0f5a90; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">📡</div>
+        <h2>Tidak ada koneksi</h2>
+        <p>Periksa koneksi internet Anda, lalu coba lagi.</p>
+        <button onclick="location.reload()">Coba Lagi</button>
+    </div>
+</body>
+</html>
