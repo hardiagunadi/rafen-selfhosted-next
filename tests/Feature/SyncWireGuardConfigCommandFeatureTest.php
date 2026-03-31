@@ -31,6 +31,17 @@ it('ships deploy sudo bootstrap for follow-up deployments', function () {
         ->toContain("printf 'Deploy Sudoers       : %s\\n' \"\$DEPLOY_SUDOERS_PATH\"");
 });
 
+it('ships installer prompts for registry sync confirmation and super admin wa input', function () {
+    $installerSource = file_get_contents(base_path('install-selfhosted.sh'));
+
+    expect($installerSource)
+        ->toContain('Aktifkan sinkronisasi install-time ke SaaS?')
+        ->toContain('Nomor WhatsApp super admin awal')
+        ->toContain('Nomor WhatsApp admin untuk sinkronisasi SaaS')
+        ->toContain('Konfirmasi konfigurasi instalasi self-hosted')
+        ->toContain('Registrasi install-time ke SaaS gagal. Instalasi lokal tetap dilanjutkan, tetapi instance ini belum tercatat otomatis di SaaS. Detail:');
+});
+
 it('ships a portable wireguard apply helper script', function () {
     $helperSource = file_get_contents(base_path('scripts/wireguard-apply.sh'));
 

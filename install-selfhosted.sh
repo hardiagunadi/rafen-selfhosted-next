@@ -631,6 +631,35 @@ prompt_optional_text_if_missing() {
     printf '%s' "$result"
 }
 
+preview_secret_value() {
+    local value="$1"
+    local length="${#value}"
+
+    if [ "$length" -eq 0 ]; then
+        printf 'missing'
+        return
+    fi
+
+    if [ "$length" -le 8 ]; then
+        printf 'set (%s)' "$value"
+        return
+    fi
+
+    printf 'set (%s...%s)' "${value:0:4}" "${value:length-4:4}"
+}
+
+registry_sync_is_enabled() {
+    if [ -n "$SELF_HOSTED_REGISTRY_URL_VALUE" ] && [ -n "$SELF_HOSTED_REGISTRY_TOKEN_VALUE" ]; then
+        return 0
+    fi
+
+    if [ -n "$(read_env SELF_HOSTED_REGISTRY_URL)" ] && [ -n "$(read_env SELF_HOSTED_REGISTRY_TOKEN)" ]; then
+        return 0
+    fi
+
+    return 1
+}
+
 prompt_yes_no() {
     local label="$1"
     local default_answer="${2:-n}"
@@ -765,26 +794,39 @@ prompt_admin_password_if_missing() {
 prompt_admin_inputs_if_needed() {
     local registry_url
     local registry_token
+    local registry_enabled=0
 
-    registry_url="$(read_env SELF_HOSTED_REGISTRY_URL)"
-    registry_token="$(read_env SELF_HOSTED_REGISTRY_TOKEN)"
+    registry_url="${SELF_HOSTED_REGISTRY_URL_VALUE:-$(read_env SELF_HOSTED_REGISTRY_URL)}"
+    registry_token="${SELF_HOSTED_REGISTRY_TOKEN_VALUE:-$(read_env SELF_HOSTED_REGISTRY_TOKEN)}"
+
+    if [ -n "$registry_url" ] && [ -n "$registry_token" ]; then
+        registry_enabled=1
+    fi
 
     if [ "$RUN_SUPER_ADMIN_SETUP" = "1" ]; then
         ADMIN_NAME="$(prompt_text_if_missing "$ADMIN_NAME" "Nama super admin awal")"
         ADMIN_EMAIL="$(prompt_text_if_missing "$ADMIN_EMAIL" "Email super admin awal")"
         prompt_admin_password_if_missing
+
+        if [ "$registry_enabled" = "1" ]; then
+            ADMIN_PHONE="$(prompt_text_if_missing "$ADMIN_PHONE" "Nomor WhatsApp super admin awal")"
+        else
+            ADMIN_PHONE="$(prompt_optional_text_if_missing "$ADMIN_PHONE" "Nomor WhatsApp super admin awal")"
+        fi
     fi
 
-    if [ -n "$registry_url" ] && [ -n "$registry_token" ]; then
+    if [ "$registry_enabled" = "1" ]; then
         if [ -z "$ADMIN_NAME" ]; then
             ADMIN_NAME="$(prompt_text_if_missing "$ADMIN_NAME" "Nama admin untuk sinkronisasi SaaS")"
         fi
 
         if [ -z "$ADMIN_EMAIL" ]; then
-            ADMIN_EMAIL="$(prompt_optional_text_if_missing "$ADMIN_EMAIL" "Email admin untuk sinkronisasi SaaS")"
+            ADMIN_EMAIL="$(prompt_text_if_missing "$ADMIN_EMAIL" "Email admin untuk sinkronisasi SaaS")"
         fi
 
-        ADMIN_PHONE="$(prompt_optional_text_if_missing "$ADMIN_PHONE" "Nomor WhatsApp admin untuk notifikasi SaaS")"
+        if [ -z "$ADMIN_PHONE" ]; then
+            ADMIN_PHONE="$(prompt_text_if_missing "$ADMIN_PHONE" "Nomor WhatsApp admin untuk sinkronisasi SaaS")"
+        fi
     fi
 }
 
@@ -799,6 +841,51 @@ prompt_install_configuration_if_needed() {
 
     prompt_license_public_key_if_needed
     prompt_registry_configuration_if_needed
+}
+
+confirm_install_configuration_if_needed() {
+    local registry_enabled="Tidak"
+    local registry_url="-"
+    local admin_name_display="-"
+    local admin_email_display="-"
+    local admin_phone_display="-"
+
+    if ! is_interactive_install; then
+        return
+    fi
+
+    if registry_sync_is_enabled; then
+        registry_enabled="Ya"
+        registry_url="${SELF_HOSTED_REGISTRY_URL_VALUE:-$(read_env SELF_HOSTED_REGISTRY_URL)}"
+    fi
+
+    if [ -n "$ADMIN_NAME" ]; then
+        admin_name_display="$ADMIN_NAME"
+    fi
+
+    if [ -n "$ADMIN_EMAIL" ]; then
+        admin_email_display="$ADMIN_EMAIL"
+    fi
+
+    if [ -n "$ADMIN_PHONE" ]; then
+        admin_phone_display="$ADMIN_PHONE"
+    fi
+
+    printf '\n==== Konfirmasi konfigurasi instalasi self-hosted ====\n' >&2
+    printf 'APP_URL                  : %s\n' "$(read_env APP_URL)" >&2
+    printf 'LICENSE_PUBLIC_KEY       : %s\n' "$(preview_secret_value "${LICENSE_PUBLIC_KEY_VALUE:-$(read_env LICENSE_PUBLIC_KEY)}")" >&2
+    printf 'Sinkronisasi ke SaaS     : %s\n' "$registry_enabled" >&2
+    printf 'SELF_HOSTED_REGISTRY_URL : %s\n' "$registry_url" >&2
+    printf 'SELF_HOSTED_REGISTRY_TOKEN: %s\n' "$(preview_secret_value "${SELF_HOSTED_REGISTRY_TOKEN_VALUE:-$(read_env SELF_HOSTED_REGISTRY_TOKEN)}")" >&2
+    printf 'Nama Super Admin         : %s\n' "$admin_name_display" >&2
+    printf 'Email Super Admin        : %s\n' "$admin_email_display" >&2
+    printf 'Nomor WA Super Admin     : %s\n' "$admin_phone_display" >&2
+    printf 'Password Super Admin     : %s\n' "$([ -n "$ADMIN_PASSWORD" ] && printf 'set' || printf 'missing')" >&2
+    printf '======================================================\n' >&2
+
+    if ! prompt_yes_no "Lanjutkan instalasi dengan konfigurasi di atas?" "y"; then
+        fail "Instalasi dibatalkan agar konfigurasi bisa diperiksa ulang."
+    fi
 }
 
 ensure_deploy_user() {
@@ -1617,6 +1704,7 @@ run_artisan_runtime_setup() {
     fi
 
     prompt_admin_inputs_if_needed
+    confirm_install_configuration_if_needed
 
     if [ "$RUN_SUPER_ADMIN_SETUP" != "1" ]; then
         register_install_time_if_configured
@@ -1628,18 +1716,25 @@ run_artisan_runtime_setup() {
         return
     fi
 
-    run_in_app_as_installer_user "$PHP_BIN" artisan user:create-super-admin "$ADMIN_NAME" "$ADMIN_EMAIL" --password="$ADMIN_PASSWORD" --ansi
+    run_in_app_as_installer_user "$PHP_BIN" artisan user:create-super-admin "$ADMIN_NAME" "$ADMIN_EMAIL" --password="$ADMIN_PASSWORD" --phone="$ADMIN_PHONE" --ansi
 
     register_install_time_if_configured
 }
 
 register_install_time_if_configured() {
+    local registration_output=""
+
     if [ -z "$(read_env SELF_HOSTED_REGISTRY_URL)" ] || [ -z "$(read_env SELF_HOSTED_REGISTRY_TOKEN)" ]; then
         return
     fi
 
-    if ! run_in_app_as_installer_user "$PHP_BIN" artisan self-hosted:register-install --admin-name="$ADMIN_NAME" --admin-email="$ADMIN_EMAIL" --admin-phone="$ADMIN_PHONE" --ansi; then
-        warn "Registrasi install-time ke SaaS gagal. Instalasi lokal tetap dilanjutkan, tetapi instance ini belum tercatat otomatis di SaaS."
+    if ! registration_output="$(run_in_app_as_installer_user "$PHP_BIN" artisan self-hosted:register-install --admin-name="$ADMIN_NAME" --admin-email="$ADMIN_EMAIL" --admin-phone="$ADMIN_PHONE" --ansi 2>&1)"; then
+        warn "Registrasi install-time ke SaaS gagal. Instalasi lokal tetap dilanjutkan, tetapi instance ini belum tercatat otomatis di SaaS. Detail: $registration_output"
+        return
+    fi
+
+    if [ -n "$registration_output" ]; then
+        printf '%s\n' "$registration_output"
     fi
 }
 
