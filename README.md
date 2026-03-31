@@ -113,6 +113,33 @@ Environment variable penting:
 - Mode tanpa domain tetap valid untuk production kecil atau instalasi internal, tetapi HTTPS publik biasanya tetap membutuhkan domain
 - Untuk deploy ulang setelah server siap, gunakan mode `deploy`
 
+### Langkah Tambahan untuk Server Lama
+
+Jika server self-hosted sudah terpasang sebelum fitur `Server Health` terbaru ini masuk, jalankan sekali:
+
+```bash
+sudo bash install-selfhosted.sh deploy
+```
+
+Langkah ini diperlukan agar installer menulis file sudoers `Server Health` via `visudo`, sehingga aksi seperti `Start Permanen`, `Restart`, dan `Clear RAM` dari halaman `/super-admin/server-health` tidak lagi meminta password `sudo`.
+
+Jika muncul error `deploy is not in the sudoers file`, berarti server lama belum sempat mendapat provisioning sudo untuk user `deploy`. Login sebagai `root` sekali lalu jalankan:
+
+```bash
+bash install-selfhosted.sh deploy
+```
+
+Deploy terbaru akan menulis sudoers untuk user `deploy`, jadi deploy berikutnya sudah bisa memakai:
+
+```bash
+sudo bash install-selfhosted.sh deploy
+```
+
+Setelah command di atas selesai:
+- tombol aksi service di `Server Health` bisa menjalankan `systemctl restart` dan `systemctl enable --now` tanpa prompt password
+- aktivasi lisensi yang berhasil bisa otomatis menyalakan service berlisensi yang masih down
+- server lama ikut mendapatkan provisioning yang sama dengan instalasi baru
+
 ## Cek Status
 
 ```bash

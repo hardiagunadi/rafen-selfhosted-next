@@ -20,6 +20,17 @@ it('guards the installer when the wireguard sync command is unavailable', functi
         ->and($installerSource)->toContain('Command wireguard:sync belum tersedia');
 });
 
+it('ships deploy sudo bootstrap for follow-up deployments', function () {
+    $installerSource = file_get_contents(base_path('install-selfhosted.sh'));
+
+    expect($installerSource)
+        ->toContain('DEPLOY_SUDOERS_PATH="${DEPLOY_SUDOERS_PATH:-/etc/sudoers.d/rafen-deploy}"')
+        ->toContain('sudoers_content="$DEPLOY_USER ALL=(root) ALL"')
+        ->toContain('write_deploy_sudoers')
+        ->toContain('sudo \\')
+        ->toContain("printf 'Deploy Sudoers       : %s\\n' \"\$DEPLOY_SUDOERS_PATH\"");
+});
+
 it('ships a portable wireguard apply helper script', function () {
     $helperSource = file_get_contents(base_path('scripts/wireguard-apply.sh'));
 
