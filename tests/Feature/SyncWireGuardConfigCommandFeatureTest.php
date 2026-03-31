@@ -42,6 +42,17 @@ it('ships installer prompts for registry sync confirmation and super admin wa in
         ->toContain('Registrasi install-time ke SaaS gagal. Instalasi lokal tetap dilanjutkan, tetapi instance ini belum tercatat otomatis di SaaS. Detail:');
 });
 
+it('ships nginx bootstrap that becomes the default server on fresh installs', function () {
+    $installerSource = file_get_contents(base_path('install-selfhosted.sh'));
+
+    expect($installerSource)
+        ->toContain('EXPECTED_APP_DIR="${EXPECTED_APP_DIR:-/var/www/rafen-selfhosted-next}"')
+        ->toContain('listen 80 default_server;')
+        ->toContain('listen [::]:80 default_server;')
+        ->toContain('NGINX_DEFAULT_CONFD_PATH="${NGINX_DEFAULT_CONFD_PATH:-/etc/nginx/conf.d/default.conf}"')
+        ->toContain('rm -f "$NGINX_DEFAULT_CONFD_PATH"');
+});
+
 it('ships a portable wireguard apply helper script', function () {
     $helperSource = file_get_contents(base_path('scripts/wireguard-apply.sh'));
 

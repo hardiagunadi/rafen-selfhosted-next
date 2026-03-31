@@ -1,6 +1,6 @@
 # Rafen Self-Hosted
 
-Installer utama untuk fresh server ada di [install-selfhosted.sh](/var/www/rafen-selfhosted/install-selfhosted.sh).
+Installer utama untuk fresh server ada di [install-selfhosted.sh](/var/www/rafen-selfhosted-next/install-selfhosted.sh).
 
 ## Pola Instalasi Production
 
