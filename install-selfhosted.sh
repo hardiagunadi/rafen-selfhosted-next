@@ -1236,7 +1236,11 @@ run_artisan_runtime_setup() {
 
     run_in_app_as_installer_user "$PHP_BIN" artisan storage:link --force --ansi
 
-    run_in_app_as_installer_user "$PHP_BIN" artisan wireguard:sync --ansi
+    if run_in_app_as_installer_user "$PHP_BIN" artisan list --raw 2>/dev/null | grep -q '^wireguard:sync'; then
+        run_in_app_as_installer_user "$PHP_BIN" artisan wireguard:sync --ansi
+    else
+        warn "Command wireguard:sync belum tersedia, melewati sinkronisasi WireGuard saat install."
+    fi
 
     if [ "$RUN_SUPER_ADMIN_SETUP" != "1" ]; then
         return
