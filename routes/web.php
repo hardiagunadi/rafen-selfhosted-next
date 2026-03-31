@@ -35,6 +35,7 @@ use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SubscriptionPlanController;
 use App\Http\Controllers\SuperAdminController;
+use App\Http\Controllers\SelfHostedInstallRegistrationController;
 use App\Http\Controllers\SuperAdminLicensePublicKeyController;
 use App\Http\Controllers\SuperAdminSelfHostedToolkitController;
 use App\Http\Controllers\SuperAdminTerminalController;
@@ -102,6 +103,9 @@ if (! $isSelfHostedApp) {
 
     // Public API — no auth required
     Route::get('api/public/plans', [SubscriptionController::class, 'publicPlans'])->name('api.public.plans');
+    Route::post('api/self-hosted/install-registrations', SelfHostedInstallRegistrationController::class)
+        ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])
+        ->name('api.self-hosted.install-registrations');
 }
 
 // Public contact/support page

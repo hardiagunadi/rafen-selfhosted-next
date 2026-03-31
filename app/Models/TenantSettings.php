@@ -94,6 +94,7 @@ class TenantSettings extends Model
         'genieacs_cr_username',
         'genieacs_cr_password',
         'portal_slug',
+        'admin_subdomain',
         // Platform Gateway
         'use_platform_gateway',
         'platform_payment_gateway_id',

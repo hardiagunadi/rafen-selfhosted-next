@@ -25,6 +25,11 @@
             <div class="card-body box-profile">
                 <h3 class="profile-username text-center">{{ $tenant->name }}</h3>
                 <p class="text-muted text-center">{{ $tenant->company_name ?? 'Individual' }}</p>
+                @if($tenant->isSelfHostedInstance())
+                <div class="text-center mb-3">
+                    <span class="badge badge-dark">Tenant Self-Hosted</span>
+                </div>
+                @endif
 
                 <ul class="list-group list-group-unbordered mb-3">
                     <li class="list-group-item">
@@ -58,6 +63,24 @@
                             {{ $tenant->isLicenseSubscription() ? 'Lisensi Tahunan' : 'Bulanan' }}
                         </a>
                     </li>
+                    @if($tenant->isSelfHostedInstance())
+                    <li class="list-group-item">
+                        <b>Instance</b>
+                        <a class="float-right">{{ $tenant->self_hosted_instance_name ?: '-' }}</a>
+                    </li>
+                    <li class="list-group-item">
+                        <b>License ID</b>
+                        <a class="float-right">{{ $tenant->self_hosted_license_id ?: '-' }}</a>
+                    </li>
+                    <li class="list-group-item">
+                        <b>Fingerprint</b>
+                        <a class="float-right text-monospace">{{ $tenant->self_hosted_fingerprint ?: '-' }}</a>
+                    </li>
+                    <li class="list-group-item">
+                        <b>App URL</b>
+                        <a class="float-right">{{ $tenant->self_hosted_app_url ?: '-' }}</a>
+                    </li>
+                    @endif
                     <li class="list-group-item">
                         <b>Paket</b> <a class="float-right">{{ $tenant->subscriptionPlan->name ?? '-' }}</a>
                     </li>

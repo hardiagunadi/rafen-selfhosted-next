@@ -35,8 +35,11 @@ RUN_WIREGUARD_PACKAGE_INSTALL="${RUN_WIREGUARD_PACKAGE_INSTALL:-1}"
 APP_URL_OVERRIDE="${APP_URL_OVERRIDE:-}"
 APP_DOMAIN="${APP_DOMAIN:-}"
 LICENSE_PUBLIC_KEY_VALUE="${LICENSE_PUBLIC_KEY_VALUE:-}"
+SELF_HOSTED_REGISTRY_URL_VALUE="${SELF_HOSTED_REGISTRY_URL_VALUE:-}"
+SELF_HOSTED_REGISTRY_TOKEN_VALUE="${SELF_HOSTED_REGISTRY_TOKEN_VALUE:-}"
 ADMIN_NAME="${ADMIN_NAME:-}"
 ADMIN_EMAIL="${ADMIN_EMAIL:-}"
+ADMIN_PHONE="${ADMIN_PHONE:-}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 RUN_SYSTEM_BOOTSTRAP="${RUN_SYSTEM_BOOTSTRAP:-1}"
 DB_CONNECTION="${DB_CONNECTION:-sqlite}"
@@ -87,9 +90,12 @@ Options:
   --domain <host>           Domain/host untuk APP_URL dan server_name Nginx
   --license-public-key <key>
                             Public key untuk verifikasi lisensi self-hosted
-  --admin-name <name>       Name for initial super admin
-  --admin-email <email>     Email for initial super admin
-  --admin-password <value>  Password for initial super admin
+  --registry-url <url>      Endpoint API registrasi install-time ke SaaS
+  --registry-token <token>  Bearer token untuk API registrasi install-time
+  --admin-name <name>       Name for initial super admin (opsional jika installer interaktif)
+  --admin-email <email>     Email for initial super admin (opsional jika installer interaktif)
+  --admin-phone <phone>     Nomor WhatsApp admin awal untuk sinkronisasi notifikasi SaaS
+  --admin-password <value>  Password for initial super admin (opsional jika installer interaktif)
   --db-connection <driver>  Database connection (sqlite or mysql)
   --db-host <host>          Database host for non-sqlite setup
   --db-port <port>          Database port for non-sqlite setup
@@ -114,6 +120,7 @@ Env overrides:
   PHP_BIN, COMPOSER_BIN, NPM_BIN, APT_GET_BIN, SYSTEMCTL_BIN, VISUDO_BIN,
   NGINX_BIN, NGINX_SERVICE, ALLOW_NON_ROOT, RUN_COMPOSER_INSTALL, RUN_NPM_BUILD, RUN_MIGRATE,
   RUN_SUPER_ADMIN_SETUP, RUN_SYSTEM_BOOTSTRAP, RUN_WIREGUARD_SYSTEM_BOOTSTRAP, LICENSE_PUBLIC_KEY_VALUE,
+  SELF_HOSTED_REGISTRY_URL_VALUE, SELF_HOSTED_REGISTRY_TOKEN_VALUE, ADMIN_PHONE,
   RUN_WIREGUARD_PACKAGE_INSTALL, DB_CONNECTION, DB_HOST, DB_PORT,
   DB_DATABASE, DB_USERNAME, DB_PASSWORD, WG_SYSTEM_DIR, WG_SYSTEM_INTERFACE,
   WG_SYSTEM_SERVICE, WG_SUDOERS_PATH, WG_SYNC_HELPER_PATH, APP_DOMAIN,
@@ -133,7 +140,7 @@ elevate_with_sudo() {
 
     sudo -v || fail "Autentikasi sudo gagal."
 
-    exec sudo --preserve-env=APP_DIR,EXPECTED_APP_DIR,ENV_FILE,ENV_EXAMPLE_FILE,DEPLOY_USER,DEPLOY_GROUP,DEPLOY_PASSWORD,APP_USER,APP_GROUP,SYSTEM_TIMEZONE,PHP_BIN,COMPOSER_BIN,NPM_BIN,APT_GET_BIN,SYSTEMCTL_BIN,VISUDO_BIN,ALLOW_NON_ROOT,DRY_RUN,RUN_COMPOSER_INSTALL,RUN_NPM_BUILD,RUN_MIGRATE,RUN_SUPER_ADMIN_SETUP,RUN_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_PACKAGE_INSTALL,APP_URL_OVERRIDE,APP_DOMAIN,LICENSE_PUBLIC_KEY_VALUE,ADMIN_NAME,ADMIN_EMAIL,ADMIN_PASSWORD,DB_CONNECTION,DB_HOST,DB_PORT,DB_DATABASE,DB_USERNAME,DB_PASSWORD,WG_SYSTEM_DIR,WG_SYSTEM_INTERFACE,WG_SYSTEM_SERVICE,WG_SUDOERS_PATH,WG_SYNC_HELPER_PATH,SYSTEM_PRIMARY_IP,NGINX_BIN,NGINX_SERVICE,NGINX_SITE_AVAILABLE_PATH,NGINX_SITE_ENABLED_PATH,NGINX_DEFAULT_SITE_PATH,PHP_FPM_SERVICE,PHP_FPM_SOCK bash "$0" "$@"
+    exec sudo --preserve-env=APP_DIR,EXPECTED_APP_DIR,ENV_FILE,ENV_EXAMPLE_FILE,DEPLOY_USER,DEPLOY_GROUP,DEPLOY_PASSWORD,APP_USER,APP_GROUP,SYSTEM_TIMEZONE,PHP_BIN,COMPOSER_BIN,NPM_BIN,APT_GET_BIN,SYSTEMCTL_BIN,VISUDO_BIN,ALLOW_NON_ROOT,DRY_RUN,RUN_COMPOSER_INSTALL,RUN_NPM_BUILD,RUN_MIGRATE,RUN_SUPER_ADMIN_SETUP,RUN_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_PACKAGE_INSTALL,APP_URL_OVERRIDE,APP_DOMAIN,LICENSE_PUBLIC_KEY_VALUE,SELF_HOSTED_REGISTRY_URL_VALUE,SELF_HOSTED_REGISTRY_TOKEN_VALUE,ADMIN_NAME,ADMIN_EMAIL,ADMIN_PHONE,ADMIN_PASSWORD,DB_CONNECTION,DB_HOST,DB_PORT,DB_DATABASE,DB_USERNAME,DB_PASSWORD,WG_SYSTEM_DIR,WG_SYSTEM_INTERFACE,WG_SYSTEM_SERVICE,WG_SUDOERS_PATH,WG_SYNC_HELPER_PATH,SYSTEM_PRIMARY_IP,NGINX_BIN,NGINX_SERVICE,NGINX_SITE_AVAILABLE_PATH,NGINX_SITE_ENABLED_PATH,NGINX_DEFAULT_SITE_PATH,PHP_FPM_SERVICE,PHP_FPM_SOCK bash "$0" "$@"
 }
 
 parse_args() {
@@ -164,12 +171,24 @@ parse_args() {
                 LICENSE_PUBLIC_KEY_VALUE="$2"
                 shift 2
                 ;;
+            --registry-url)
+                SELF_HOSTED_REGISTRY_URL_VALUE="$2"
+                shift 2
+                ;;
+            --registry-token)
+                SELF_HOSTED_REGISTRY_TOKEN_VALUE="$2"
+                shift 2
+                ;;
             --admin-name)
                 ADMIN_NAME="$2"
                 shift 2
                 ;;
             --admin-email)
                 ADMIN_EMAIL="$2"
+                shift 2
+                ;;
+            --admin-phone)
+                ADMIN_PHONE="$2"
                 shift 2
                 ;;
             --admin-password)
@@ -545,6 +564,228 @@ prompt_deploy_password() {
     done
 }
 
+is_interactive_install() {
+    [ -t 0 ] && [ -t 1 ]
+}
+
+prompt_text_if_missing() {
+    local current_value="$1"
+    local label="$2"
+    local result=""
+
+    if [ -n "$current_value" ]; then
+        printf '%s' "$current_value"
+        return
+    fi
+
+    if ! is_interactive_install; then
+        printf '%s' "$current_value"
+        return
+    fi
+
+    while true; do
+        printf '%s: ' "$label" >&2
+        read -r result
+
+        if [ -n "$result" ]; then
+            printf '%s' "$result"
+            return
+        fi
+
+        warn "$label tidak boleh kosong."
+    done
+}
+
+prompt_optional_text_if_missing() {
+    local current_value="$1"
+    local label="$2"
+    local result=""
+
+    if [ -n "$current_value" ]; then
+        printf '%s' "$current_value"
+        return
+    fi
+
+    if ! is_interactive_install; then
+        printf '%s' "$current_value"
+        return
+    fi
+
+    printf '%s (opsional, kosongkan jika belum ada): ' "$label" >&2
+    read -r result
+    printf '%s' "$result"
+}
+
+prompt_yes_no() {
+    local label="$1"
+    local default_answer="${2:-n}"
+    local answer=""
+
+    if ! is_interactive_install; then
+        [ "$default_answer" = "y" ]
+        return
+    fi
+
+    while true; do
+        if [ "$default_answer" = "y" ]; then
+            printf '%s [Y/n]: ' "$label" >&2
+        else
+            printf '%s [y/N]: ' "$label" >&2
+        fi
+
+        read -r answer
+        answer="$(printf '%s' "$answer" | tr '[:upper:]' '[:lower:]')"
+
+        case "$answer" in
+            '')
+                [ "$default_answer" = "y" ]
+                return
+                ;;
+            y|yes)
+                return 0
+                ;;
+            n|no)
+                return 1
+                ;;
+        esac
+
+        warn "Jawaban tidak dikenali. Masukkan y atau n."
+    done
+}
+
+prompt_license_public_key_if_needed() {
+    local existing_public_key=""
+
+    if [ -n "$LICENSE_PUBLIC_KEY_VALUE" ]; then
+        return
+    fi
+
+    existing_public_key="$(read_env LICENSE_PUBLIC_KEY)"
+
+    if [ -n "$existing_public_key" ]; then
+        LICENSE_PUBLIC_KEY_VALUE="$existing_public_key"
+        return
+    fi
+
+    if ! is_interactive_install; then
+        return
+    fi
+
+    LICENSE_PUBLIC_KEY_VALUE="$(prompt_text_if_missing "$LICENSE_PUBLIC_KEY_VALUE" "Paste LICENSE_PUBLIC_KEY dari server SaaS")"
+}
+
+prompt_registry_configuration_if_needed() {
+    local existing_registry_url=""
+    local existing_registry_token=""
+
+    if [ -z "$SELF_HOSTED_REGISTRY_URL_VALUE" ]; then
+        existing_registry_url="$(read_env SELF_HOSTED_REGISTRY_URL)"
+        if [ -n "$existing_registry_url" ]; then
+            SELF_HOSTED_REGISTRY_URL_VALUE="$existing_registry_url"
+        fi
+    fi
+
+    if [ -z "$SELF_HOSTED_REGISTRY_TOKEN_VALUE" ]; then
+        existing_registry_token="$(read_env SELF_HOSTED_REGISTRY_TOKEN)"
+        if [ -n "$existing_registry_token" ]; then
+            SELF_HOSTED_REGISTRY_TOKEN_VALUE="$existing_registry_token"
+        fi
+    fi
+
+    if [ -n "$SELF_HOSTED_REGISTRY_URL_VALUE" ] || [ -n "$SELF_HOSTED_REGISTRY_TOKEN_VALUE" ]; then
+        if [ -z "$SELF_HOSTED_REGISTRY_URL_VALUE" ]; then
+            SELF_HOSTED_REGISTRY_URL_VALUE="$(prompt_text_if_missing "$SELF_HOSTED_REGISTRY_URL_VALUE" "URL endpoint registrasi self-hosted ke SaaS")"
+        fi
+
+        if [ -z "$SELF_HOSTED_REGISTRY_TOKEN_VALUE" ]; then
+            SELF_HOSTED_REGISTRY_TOKEN_VALUE="$(prompt_text_if_missing "$SELF_HOSTED_REGISTRY_TOKEN_VALUE" "Token registrasi self-hosted dari SaaS")"
+        fi
+
+        return
+    fi
+
+    if ! prompt_yes_no "Aktifkan sinkronisasi install-time ke SaaS?" "n"; then
+        return
+    fi
+
+    SELF_HOSTED_REGISTRY_URL_VALUE="$(prompt_text_if_missing "$SELF_HOSTED_REGISTRY_URL_VALUE" "URL endpoint registrasi self-hosted ke SaaS")"
+    SELF_HOSTED_REGISTRY_TOKEN_VALUE="$(prompt_text_if_missing "$SELF_HOSTED_REGISTRY_TOKEN_VALUE" "Token registrasi self-hosted dari SaaS")"
+}
+
+prompt_admin_password_if_missing() {
+    local password
+    local password_confirm
+
+    if [ -n "$ADMIN_PASSWORD" ]; then
+        return
+    fi
+
+    if ! is_interactive_install; then
+        return
+    fi
+
+    while true; do
+        printf 'Masukkan password super admin awal: ' >&2
+        read -r -s password
+        printf '\n' >&2
+        printf 'Konfirmasi password super admin awal: ' >&2
+        read -r -s password_confirm
+        printf '\n' >&2
+
+        [ -n "$password" ] || {
+            warn "Password super admin tidak boleh kosong."
+            continue
+        }
+
+        if [ "$password" != "$password_confirm" ]; then
+            warn "Konfirmasi password super admin tidak cocok. Coba lagi."
+            continue
+        fi
+
+        ADMIN_PASSWORD="$password"
+        return
+    done
+}
+
+prompt_admin_inputs_if_needed() {
+    local registry_url
+    local registry_token
+
+    registry_url="$(read_env SELF_HOSTED_REGISTRY_URL)"
+    registry_token="$(read_env SELF_HOSTED_REGISTRY_TOKEN)"
+
+    if [ "$RUN_SUPER_ADMIN_SETUP" = "1" ]; then
+        ADMIN_NAME="$(prompt_text_if_missing "$ADMIN_NAME" "Nama super admin awal")"
+        ADMIN_EMAIL="$(prompt_text_if_missing "$ADMIN_EMAIL" "Email super admin awal")"
+        prompt_admin_password_if_missing
+    fi
+
+    if [ -n "$registry_url" ] && [ -n "$registry_token" ]; then
+        if [ -z "$ADMIN_NAME" ]; then
+            ADMIN_NAME="$(prompt_text_if_missing "$ADMIN_NAME" "Nama admin untuk sinkronisasi SaaS")"
+        fi
+
+        if [ -z "$ADMIN_EMAIL" ]; then
+            ADMIN_EMAIL="$(prompt_optional_text_if_missing "$ADMIN_EMAIL" "Email admin untuk sinkronisasi SaaS")"
+        fi
+
+        ADMIN_PHONE="$(prompt_optional_text_if_missing "$ADMIN_PHONE" "Nomor WhatsApp admin untuk notifikasi SaaS")"
+    fi
+}
+
+prompt_install_configuration_if_needed() {
+    if [ "$MODE" != "install" ]; then
+        return
+    fi
+
+    if ! is_interactive_install; then
+        return
+    fi
+
+    prompt_license_public_key_if_needed
+    prompt_registry_configuration_if_needed
+}
+
 ensure_deploy_user() {
     if [ "$ALLOW_NON_ROOT" = "1" ] || [ "$(id -u)" -ne 0 ]; then
         return
@@ -813,6 +1054,12 @@ configure_environment() {
     set_env LICENSE_FILE_PATH "$APP_DIR/storage/app/license/rafen.lic"
     set_env LICENSE_MACHINE_ID_PATH "/etc/machine-id"
     set_env LICENSE_DEFAULT_GRACE_DAYS "21"
+    if [ -n "$SELF_HOSTED_REGISTRY_URL_VALUE" ]; then
+        set_env SELF_HOSTED_REGISTRY_URL "$SELF_HOSTED_REGISTRY_URL_VALUE"
+    fi
+    if [ -n "$SELF_HOSTED_REGISTRY_TOKEN_VALUE" ]; then
+        set_env SELF_HOSTED_REGISTRY_TOKEN "$SELF_HOSTED_REGISTRY_TOKEN_VALUE"
+    fi
     set_env GENIEACS_NBI_URL "http://127.0.0.1:7557"
     set_env GENIEACS_UI_URL "http://127.0.0.1:3000"
     set_env GENIEACS_NBI_TIMEOUT "10"
@@ -1300,7 +1547,10 @@ run_artisan_runtime_setup() {
         warn "Command wireguard:sync belum tersedia, melewati sinkronisasi WireGuard saat install."
     fi
 
+    prompt_admin_inputs_if_needed
+
     if [ "$RUN_SUPER_ADMIN_SETUP" != "1" ]; then
+        register_install_time_if_configured
         return
     fi
 
@@ -1310,6 +1560,18 @@ run_artisan_runtime_setup() {
     fi
 
     run_in_app_as_installer_user "$PHP_BIN" artisan user:create-super-admin "$ADMIN_NAME" "$ADMIN_EMAIL" --password="$ADMIN_PASSWORD" --ansi
+
+    register_install_time_if_configured
+}
+
+register_install_time_if_configured() {
+    if [ -z "$(read_env SELF_HOSTED_REGISTRY_URL)" ] || [ -z "$(read_env SELF_HOSTED_REGISTRY_TOKEN)" ]; then
+        return
+    fi
+
+    if ! run_in_app_as_installer_user "$PHP_BIN" artisan self-hosted:register-install --admin-name="$ADMIN_NAME" --admin-email="$ADMIN_EMAIL" --admin-phone="$ADMIN_PHONE" --ansi; then
+        warn "Registrasi install-time ke SaaS gagal. Instalasi lokal tetap dilanjutkan, tetapi instance ini belum tercatat otomatis di SaaS."
+    fi
 }
 
 show_status() {
@@ -1357,6 +1619,8 @@ show_status() {
         printf 'License Enabled      : %s\n' "$(read_env LICENSE_SELF_HOSTED_ENABLED)"
         printf 'License Enforced     : %s\n' "$(read_env LICENSE_ENFORCE)"
         printf 'License Public Key   : %s\n' "$([ -n "$(read_env LICENSE_PUBLIC_KEY)" ] && printf set || printf missing)"
+        printf 'Registry URL         : %s\n' "$(read_env SELF_HOSTED_REGISTRY_URL)"
+        printf 'Registry Token       : %s\n' "$([ -n "$(read_env SELF_HOSTED_REGISTRY_TOKEN)" ] && printf set || printf missing)"
         printf 'WG Apply Command     : %s\n' "$(read_env WG_APPLY_COMMAND)"
     fi
 
@@ -1380,6 +1644,7 @@ run_install_or_deploy() {
     ensure_app_layout
     ensure_runtime_directories
     copy_env_file_if_missing
+    prompt_install_configuration_if_needed
     configure_environment
     prepare_sqlite_database
     prepare_app_for_deploy_user

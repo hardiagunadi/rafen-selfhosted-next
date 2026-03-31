@@ -52,4 +52,9 @@ return [
         'app_secret' => env('META_WHATSAPP_APP_SECRET', ''),
     ],
 
+    'self_hosted_registry' => [
+        'url' => env('SELF_HOSTED_REGISTRY_URL', ''),
+        'token' => env('SELF_HOSTED_REGISTRY_TOKEN', ''),
+    ],
+
 ];

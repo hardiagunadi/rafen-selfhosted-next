@@ -2,6 +2,7 @@
 
 use App\Models\User;
 use App\Models\SubscriptionPlan;
+use App\Models\TenantSettings;
 use App\Services\LicenseFingerprintService;
 use App\Services\LicenseSignatureService;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
@@ -210,6 +211,75 @@ it('issues and downloads a self-hosted license from the saas ui', function () {
             'max_radius_clients' => 20,
         ])
         ->and($signatureService->verify($payload))->toBeTrue();
+});
+
+it('creates or updates a saas tenant record when issuing a self-hosted license', function () {
+    createLicensePresetPlan([
+        'name' => 'Growth',
+        'slug' => 'growth',
+        'max_mikrotik' => 10,
+        'max_ppp_users' => 1000,
+        'max_vpn_peers' => 10,
+        'features' => ['RADIUS Integration', 'VPN Access', 'Whatsapp Integration'],
+        'sort_order' => 2,
+    ]);
+
+    $superAdmin = createSuperAdminForLicensePublicKey();
+    $fingerprint = app(LicenseFingerprintService::class)->generate();
+
+    $this->actingAs($superAdmin)
+        ->post(route('super-admin.settings.license-public-key.issue'), [
+            'license_preset' => 'growth',
+            'customer_name' => 'PT Self Hosted',
+            'instance_name' => 'edge-jakarta',
+            'fingerprint' => $fingerprint,
+            'expires_at' => now()->addYear()->toDateString(),
+            'max_mikrotik' => 25,
+            'max_ppp_users' => 1500,
+        ])
+        ->assertSuccessful();
+
+    $tenant = User::query()
+        ->where('self_hosted_fingerprint', $fingerprint)
+        ->first();
+
+    expect($tenant)->not->toBeNull()
+        ->and($tenant->isSelfHostedInstance())->toBeTrue()
+        ->and($tenant->subscription_method)->toBe(User::SUBSCRIPTION_METHOD_LICENSE)
+        ->and($tenant->subscription_status)->toBe('active')
+        ->and($tenant->self_hosted_instance_name)->toBe('edge-jakarta')
+        ->and($tenant->license_max_mikrotik)->toBe(25)
+        ->and($tenant->license_max_ppp_users)->toBe(1500)
+        ->and($tenant->subscriptionPlan?->slug)->toBe('growth');
+
+    $settings = TenantSettings::query()->where('user_id', $tenant->id)->first();
+
+    expect($settings)->not->toBeNull()
+        ->and($settings->admin_subdomain)->toStartWith('sh-')
+        ->and($settings->portal_slug)->toBe($settings->admin_subdomain);
+
+    $existingTenantId = $tenant->id;
+
+    $this->actingAs($superAdmin)
+        ->post(route('super-admin.settings.license-public-key.issue'), [
+            'license_preset' => 'growth',
+            'customer_name' => 'PT Self Hosted Renewed',
+            'instance_name' => 'edge-jakarta-2',
+            'fingerprint' => $fingerprint,
+            'expires_at' => now()->addYears(2)->toDateString(),
+            'max_mikrotik' => 30,
+            'max_ppp_users' => 2000,
+        ])
+        ->assertSuccessful();
+
+    $tenant->refresh();
+
+    expect(User::query()->where('self_hosted_fingerprint', $fingerprint)->count())->toBe(1)
+        ->and($tenant->id)->toBe($existingTenantId)
+        ->and($tenant->name)->toBe('PT Self Hosted Renewed')
+        ->and($tenant->self_hosted_instance_name)->toBe('edge-jakarta-2')
+        ->and($tenant->license_max_mikrotik)->toBe(30)
+        ->and($tenant->license_max_ppp_users)->toBe(2000);
 });
 
 it('applies selected preset defaults when issuing a self-hosted license from the saas ui', function () {

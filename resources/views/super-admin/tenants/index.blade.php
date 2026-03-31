@@ -59,6 +59,9 @@
                             <a href="{{ route('super-admin.tenants.show', $tenant) }}">
                                 {{ $tenant->name }}
                             </a>
+                            @if($tenant->isSelfHostedInstance())
+                                <span class="badge badge-dark ml-1">Self-Hosted</span>
+                            @endif
                         </td>
                         <td>{{ $tenant->email }}</td>
                         <td>{{ $tenant->company_name ?? '-' }}</td>

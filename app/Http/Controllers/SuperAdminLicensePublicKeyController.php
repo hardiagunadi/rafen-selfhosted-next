@@ -6,6 +6,7 @@ use App\Http\Requests\IssueSelfHostedLicenseRequest;
 use App\Http\Requests\UpdateSystemLicensePublicKeyRequest;
 use App\Services\LicenseIssuerService;
 use App\Services\LicensePublicKeyService;
+use App\Services\SelfHostedTenantRegistryService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Str;
@@ -44,6 +45,7 @@ class SuperAdminLicensePublicKeyController extends Controller
     public function issue(
         IssueSelfHostedLicenseRequest $request,
         LicenseIssuerService $licenseIssuerService,
+        SelfHostedTenantRegistryService $selfHostedTenantRegistryService,
     ): StreamedResponse|RedirectResponse {
         try {
             $payload = $licenseIssuerService->issue(
@@ -57,6 +59,11 @@ class SuperAdminLicensePublicKeyController extends Controller
                 supportUntil: $request->validated('support_until'),
                 graceDays: $request->graceDays(),
                 accessMode: $request->accessMode(),
+            );
+
+            $selfHostedTenantRegistryService->upsertFromIssuedLicense(
+                $payload,
+                $request->validated('license_preset'),
             );
         } catch (Throwable $throwable) {
             return redirect()

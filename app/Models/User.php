@@ -37,11 +37,16 @@ class User extends Authenticatable
         'company_name',
         'address',
         'is_super_admin',
+        'is_self_hosted_instance',
         'parent_id',
         'subscription_status',
         'subscription_expires_at',
         'subscription_plan_id',
         'subscription_method',
+        'self_hosted_license_id',
+        'self_hosted_instance_name',
+        'self_hosted_fingerprint',
+        'self_hosted_app_url',
         'license_max_mikrotik',
         'license_max_ppp_users',
         'vpn_username',
@@ -76,6 +81,7 @@ class User extends Authenticatable
             'password' => 'hashed',
             'last_login_at' => 'datetime',
             'is_super_admin' => 'boolean',
+            'is_self_hosted_instance' => 'boolean',
             'subscription_expires_at' => 'date',
             'license_max_mikrotik' => 'integer',
             'license_max_ppp_users' => 'integer',
@@ -222,6 +228,11 @@ class User extends Authenticatable
     public function isLicenseSubscription(): bool
     {
         return $this->subscription_method === self::SUBSCRIPTION_METHOD_LICENSE;
+    }
+
+    public function isSelfHostedInstance(): bool
+    {
+        return $this->is_self_hosted_instance === true;
     }
 
     public function resolveSubscriptionDurationDays(?SubscriptionPlan $plan = null, ?int $durationDays = null): int
