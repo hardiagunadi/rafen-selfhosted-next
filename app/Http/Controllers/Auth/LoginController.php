@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
 use App\Models\LoginLog;
 use App\Models\TenantSettings;
+use App\Services\SystemLicenseService;
 use App\Services\TurnstileService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,10 @@ use Illuminate\Support\Facades\Auth;
 
 class LoginController extends Controller
 {
+    public function __construct(
+        private readonly SystemLicenseService $systemLicenseService,
+    ) {}
+
     public function show(Request $request): Response
     {
         $request->session()->regenerateToken();
@@ -51,7 +56,11 @@ class LoginController extends Controller
             // Super admin: selalu redirect ke domain utama
             if ($user->isSuperAdmin()) {
                 if ($isSelfHostedApp) {
-                    return redirect()->intended(route('super-admin.dashboard'))->with('status', 'Berhasil login.');
+                    $targetRoute = $this->systemLicenseService->allowsAccess()
+                        ? 'super-admin.dashboard'
+                        : 'super-admin.settings.license';
+
+                    return redirect()->intended(route($targetRoute))->with('status', 'Berhasil login.');
                 }
 
                 $mainDomain = config('app.main_domain', 'rafen.id');

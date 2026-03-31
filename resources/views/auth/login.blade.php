@@ -1,9 +1,12 @@
+@php
+    $isSelfHostedApp = (bool) config('license.self_hosted_enabled', false);
+@endphp
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login - RAFEN Manager</title>
+    <title>{{ $isSelfHostedApp ? 'Login - Rafen Self-Hosted' : 'Login - RAFEN Manager' }}</title>
     <link rel="icon" href="{{ asset('favicon.ico') }}" sizes="any">
     <link rel="icon" type="image/svg+xml" href="{{ asset('branding/rafen-favicon.svg') }}">
     <link rel="icon" type="image/png" sizes="32x32" href="{{ asset('branding/favicon-32.png') }}">
@@ -30,7 +33,7 @@
     </div>
     <div class="card">
         <div class="card-body login-card-body">
-            <p class="login-box-msg">Masuk ke akun Anda</p>
+            <p class="login-box-msg">{{ $isSelfHostedApp ? 'Masuk ke Rafen Self-Hosted' : 'Masuk ke akun Anda' }}</p>
             @if ($errors->any())
                 <div class="alert alert-danger">{{ $errors->first() }}</div>
             @endif
@@ -66,14 +69,18 @@
                     </div>
                 </div>
             </form>
-            <p class="mb-0 mt-3">
-                <a href="{{ route('register') }}" class="text-center">Daftar akun</a>
-            </p>
-            <p class="mb-0 mt-2 text-center">
-                <a href="https://watumalang.online/#harga" target="_blank" rel="noopener" class="text-muted small">
-                    <i class="fas fa-tags mr-1"></i>Lihat paket &amp; harga
-                </a>
-            </p>
+            @if (Route::has('register'))
+                <p class="mb-0 mt-3">
+                    <a href="{{ route('register') }}" class="text-center">Daftar akun</a>
+                </p>
+            @endif
+            @unless($isSelfHostedApp)
+                <p class="mb-0 mt-2 text-center">
+                    <a href="https://watumalang.online/#harga" target="_blank" rel="noopener" class="text-muted small">
+                        <i class="fas fa-tags mr-1"></i>Lihat paket &amp; harga
+                    </a>
+                </p>
+            @endunless
         </div>
     </div>
 </div>

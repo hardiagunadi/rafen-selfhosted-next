@@ -257,6 +257,15 @@ it('shows a clear warning on the license page when system license table is not m
 });
 
 it('hides self-hosted license ui in saas mode', function () {
+    putenv('LICENSE_SELF_HOSTED_ENABLED=false');
+    putenv('LICENSE_ENFORCE=false');
+    $_ENV['LICENSE_SELF_HOSTED_ENABLED'] = 'false';
+    $_ENV['LICENSE_ENFORCE'] = 'false';
+    $_SERVER['LICENSE_SELF_HOSTED_ENABLED'] = 'false';
+    $_SERVER['LICENSE_ENFORCE'] = 'false';
+
+    $this->refreshApplication();
+    $this->artisan('migrate');
     config()->set('license.self_hosted_enabled', false);
     config()->set('license.enforce', false);
 
@@ -269,6 +278,15 @@ it('hides self-hosted license ui in saas mode', function () {
 });
 
 it('returns not found for self-hosted license page in saas mode', function () {
+    putenv('LICENSE_SELF_HOSTED_ENABLED=false');
+    putenv('LICENSE_ENFORCE=false');
+    $_ENV['LICENSE_SELF_HOSTED_ENABLED'] = 'false';
+    $_ENV['LICENSE_ENFORCE'] = 'false';
+    $_SERVER['LICENSE_SELF_HOSTED_ENABLED'] = 'false';
+    $_SERVER['LICENSE_ENFORCE'] = 'false';
+
+    $this->refreshApplication();
+    $this->artisan('migrate');
     config()->set('license.self_hosted_enabled', false);
     config()->set('license.enforce', false);
 

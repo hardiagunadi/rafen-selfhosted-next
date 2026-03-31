@@ -41,4 +41,15 @@ class UserFactory extends Factory
             'email_verified_at' => null,
         ]);
     }
+
+    public function superAdmin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => 'administrator',
+            'is_super_admin' => true,
+            'subscription_status' => 'active',
+            'subscription_expires_at' => now()->addYear()->toDateString(),
+            'trial_days_remaining' => 0,
+        ]);
+    }
 }

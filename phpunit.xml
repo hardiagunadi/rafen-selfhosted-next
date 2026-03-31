@@ -18,6 +18,7 @@
         </include>
     </source>
     <php>
+        <env name="APP_KEY" value="base64:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
@@ -28,6 +29,8 @@
         <env name="LOG_CHANNEL" value="stderr"/>
         <env name="LOG_STACK" value="stderr"/>
         <env name="MAIL_MAILER" value="array"/>
+        <env name="LICENSE_SELF_HOSTED_ENABLED" value="false"/>
+        <env name="LICENSE_ENFORCE" value="false"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="PULSE_ENABLED" value="false"/>
