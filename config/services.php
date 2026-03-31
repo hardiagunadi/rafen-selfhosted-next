@@ -1,5 +1,8 @@
 <?php
 
+$turnstileSiteKey = (string) env('TURNSTILE_SITE_KEY', '');
+$turnstileSecretKey = (string) env('TURNSTILE_SECRET_KEY', '');
+
 return [
 
     /*
@@ -36,8 +39,9 @@ return [
     ],
 
     'turnstile' => [
-        'site_key' => env('TURNSTILE_SITE_KEY', ''),
-        'secret_key' => env('TURNSTILE_SECRET_KEY', ''),
+        'site_key' => $turnstileSiteKey,
+        'secret_key' => $turnstileSecretKey,
+        'enabled' => $turnstileSiteKey !== '' && $turnstileSecretKey !== '',
     ],
 
     'meta_whatsapp' => [

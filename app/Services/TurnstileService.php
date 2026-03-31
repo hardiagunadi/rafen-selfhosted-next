@@ -7,16 +7,28 @@ use Illuminate\Support\Facades\Log;
 
 class TurnstileService
 {
+    private bool $enabled;
+
     private string $secretKey;
 
     public function __construct()
     {
+        $this->enabled = (bool) config('services.turnstile.enabled', false);
         $this->secretKey = config('services.turnstile.secret_key', '');
+    }
+
+    public function enabled(): bool
+    {
+        return $this->enabled;
     }
 
     public function verify(string $token, ?string $ip = null): bool
     {
         if (app()->environment('testing')) {
+            return true;
+        }
+
+        if (! $this->enabled) {
             return true;
         }
 

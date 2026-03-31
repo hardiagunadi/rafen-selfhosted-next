@@ -6,6 +6,7 @@
     $portalLoginLogoUrl = isset($tenantSettings) && $tenantSettings?->business_logo
         ? asset('storage/' . $tenantSettings->business_logo).'?v='.($tenantSettings->updated_at?->timestamp ?? 0)
         : null;
+    $turnstileEnabled = (bool) config('services.turnstile.enabled', false);
 @endphp
 
 @push('css')
@@ -172,7 +173,9 @@
                         @error('password')<span class="invalid-feedback">{{ $message }}</span>@enderror
                     </div>
                 </div>
-                <div class="cf-turnstile mb-3" data-sitekey="{{ config('services.turnstile.site_key') }}" data-theme="light"></div>
+                @if ($turnstileEnabled)
+                    <div class="cf-turnstile mb-3" data-sitekey="{{ config('services.turnstile.site_key') }}" data-theme="light"></div>
+                @endif
                 <button type="submit" class="btn btn-primary btn-login btn-block text-white">
                     <i class="fas fa-sign-in-alt mr-1"></i> Masuk
                 </button>
@@ -223,7 +226,9 @@
         }
     });
 </script>
+@if ($turnstileEnabled)
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+@endif
 @endpush
 
 @endsection

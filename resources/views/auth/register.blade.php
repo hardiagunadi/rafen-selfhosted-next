@@ -20,6 +20,7 @@
 </head>
 <body class="hold-transition register-page">
 @php
+    $turnstileEnabled = (bool) config('services.turnstile.enabled', false);
     $serverLoadTimeMs = defined('LARAVEL_START')
         ? (microtime(true) - LARAVEL_START) * 1000
         : null;
@@ -94,10 +95,12 @@
                     </div>
                 </div>
 
-                <div class="cf-turnstile mb-3" data-sitekey="{{ config('services.turnstile.site_key') }}" data-theme="light" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileExpired"></div>
+                @if ($turnstileEnabled)
+                    <div class="cf-turnstile mb-3" data-sitekey="{{ config('services.turnstile.site_key') }}" data-theme="light" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileExpired"></div>
+                @endif
                 <div class="row">
                     <div class="col-12">
-                        <button type="submit" id="btn-register" class="btn btn-primary btn-block" disabled>
+                        <button type="submit" id="btn-register" class="btn btn-primary btn-block" @disabled($turnstileEnabled)>
                             <i class="fas fa-user-plus"></i> Daftar Sekarang
                         </button>
                     </div>
@@ -128,10 +131,22 @@
 @endif
 <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+@if ($turnstileEnabled)
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+@endif
 <script>
-function onTurnstileSuccess() { document.getElementById('btn-register').disabled = false; }
-function onTurnstileExpired() { document.getElementById('btn-register').disabled = true; }
+function onTurnstileSuccess() {
+    var button = document.getElementById('btn-register');
+    if (button) {
+        button.disabled = false;
+    }
+}
+function onTurnstileExpired() {
+    var button = document.getElementById('btn-register');
+    if (button) {
+        button.disabled = true;
+    }
+}
 
 document.addEventListener('DOMContentLoaded', function () {
     var companyInput  = document.getElementById('reg_company_name');

@@ -1,5 +1,6 @@
 @php
     $isSelfHostedApp = (bool) config('license.self_hosted_enabled', false);
+    $turnstileEnabled = (bool) config('services.turnstile.enabled', false);
 @endphp
 <!DOCTYPE html>
 <html lang="en">
@@ -56,7 +57,9 @@
                         </div>
                     </div>
                 </div>
-                <div class="cf-turnstile mb-3" data-sitekey="{{ config('services.turnstile.site_key') }}" data-theme="light" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileExpired"></div>
+                @if ($turnstileEnabled)
+                    <div class="cf-turnstile mb-3" data-sitekey="{{ config('services.turnstile.site_key') }}" data-theme="light" data-callback="onTurnstileSuccess" data-expired-callback="onTurnstileExpired" data-error-callback="onTurnstileExpired"></div>
+                @endif
                 <div class="row">
                     <div class="col-8">
                         <div class="icheck-primary">
@@ -65,7 +68,7 @@
                         </div>
                     </div>
                     <div class="col-4">
-                        <button type="submit" id="btn-login" class="btn btn-primary btn-block" disabled>Sign In</button>
+                        <button type="submit" id="btn-login" class="btn btn-primary btn-block" @disabled($turnstileEnabled)>Sign In</button>
                     </div>
                 </div>
             </form>
@@ -89,7 +92,9 @@
 @endif
 <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+@if ($turnstileEnabled)
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+@endif
 <script>
 function togglePassword() {
     var input = document.getElementById('password');
@@ -123,10 +128,16 @@ function syncRememberForPwa() {
     }
 }
 function onTurnstileSuccess() {
-    document.getElementById('btn-login').disabled = false;
+    var button = document.getElementById('btn-login');
+    if (button) {
+        button.disabled = false;
+    }
 }
 function onTurnstileExpired() {
-    document.getElementById('btn-login').disabled = true;
+    var button = document.getElementById('btn-login');
+    if (button) {
+        button.disabled = true;
+    }
 }
 window.addEventListener('pageshow', refreshIfRestoredFromCache);
 syncRememberForPwa();
