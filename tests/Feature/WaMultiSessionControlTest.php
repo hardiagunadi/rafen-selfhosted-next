@@ -151,6 +151,41 @@ it('uses manager response for super admin service control', function () {
         ]);
 });
 
+it('shows initial wa multi session service status for saas super admin page', function () {
+    config()->set('license.self_hosted_enabled', false);
+
+    $superAdmin = User::factory()->create([
+        'is_super_admin' => true,
+        'role' => 'administrator',
+    ]);
+
+    $tenant = User::factory()->create([
+        'role' => 'administrator',
+    ]);
+
+    $mock = Mockery::mock(WaMultiSessionManager::class);
+    $mock->shouldReceive('status')->once()->andReturn([
+        'running' => true,
+        'name' => 'wa-multi-session',
+        'host' => '127.0.0.1',
+        'port' => 3100,
+        'url' => 'http://127.0.0.1:3100',
+        'pm2_pid' => 5150,
+        'pm2_status' => 'online',
+        'log_file' => storage_path('logs/wa-multi-session.log'),
+    ]);
+
+    $this->app->instance(WaMultiSessionManager::class, $mock);
+
+    $response = $this->actingAs($superAdmin)
+        ->get(route('wa-gateway.index', ['tenant_id' => $tenant->id]));
+
+    $response->assertSuccessful()
+        ->assertSee('Status: <strong>RUNNING</strong>', false)
+        ->assertSee('PID: 5150')
+        ->assertSee('URL: http://127.0.0.1:3100');
+});
+
 it('allows tenant admin to create and set default wa device', function () {
     $tenantAdmin = User::factory()->create([
         'is_super_admin' => false,

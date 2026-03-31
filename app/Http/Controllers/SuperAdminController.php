@@ -16,10 +16,11 @@ use App\Models\TenantSettings;
 use App\Models\User;
 use App\Models\WaMultiSessionDevice;
 use App\Models\WaPlatformDeviceRequest;
+use App\Services\ServerHealthService;
+use App\Services\SelfHostedLicenseViewDataService;
 use App\Services\WaGatewayService;
 use App\Services\WaMultiSessionManager;
 use App\Services\WaNotificationService;
-use App\Services\SelfHostedLicenseViewDataService;
 use App\Traits\LogsActivity;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
@@ -921,21 +922,9 @@ class SuperAdminController extends Controller
 
     // ── Server Health ────────────────────────────────────────────────────────
 
-    public function serverHealth()
+    public function serverHealth(ServerHealthService $serverHealthService)
     {
-        $checkService = function (string $unit): string {
-            $output = shell_exec('systemctl is-active '.escapeshellarg($unit).' 2>/dev/null');
-
-            return trim((string) $output);
-        };
-
-        $services = [
-            ['name' => 'Queue Worker', 'unit' => 'rafen-queue', 'status' => $checkService('rafen-queue')],
-            ['name' => 'Scheduler Timer', 'unit' => 'rafen-schedule.timer', 'status' => $checkService('rafen-schedule.timer')],
-            ['name' => 'FreeRADIUS', 'unit' => 'freeradius', 'status' => $checkService('freeradius')],
-            ['name' => 'GenieACS CWMP', 'unit' => 'genieacs-cwmp', 'status' => $checkService('genieacs-cwmp')],
-            ['name' => 'GenieACS NBI', 'unit' => 'genieacs-nbi', 'status' => $checkService('genieacs-nbi')],
-        ];
+        $services = $serverHealthService->services();
 
         // Disk usage
         $dfOutput = shell_exec('df -P / 2>/dev/null');
@@ -986,36 +975,26 @@ class SuperAdminController extends Controller
         ));
     }
 
-    public function restartService(string $service)
+    public function restartService(Request $request, ServerHealthService $serverHealthService, string $service)
     {
-        $allowed = [
-            'rafen-queue' => ['cmd' => 'sudo /bin/systemctl restart rafen-queue',          'label' => 'Queue Worker'],
-            'rafen-schedule.timer' => ['cmd' => 'sudo /bin/systemctl restart rafen-schedule.timer', 'label' => 'Scheduler Timer'],
-            'freeradius' => ['cmd' => 'sudo /bin/systemctl restart freeradius',           'label' => 'FreeRADIUS'],
-            'genieacs-cwmp' => ['cmd' => 'sudo /bin/systemctl restart genieacs-cwmp',        'label' => 'GenieACS CWMP'],
-            'genieacs-nbi' => ['cmd' => 'sudo /bin/systemctl restart genieacs-nbi',         'label' => 'GenieACS NBI'],
-        ];
+        $result = $serverHealthService->control($service, $request->string('action')->toString());
 
-        if (! array_key_exists($service, $allowed)) {
-            return response()->json(['success' => false, 'message' => 'Layanan tidak dikenal.'], 422);
+        if (! ($result['success'] ?? false)) {
+            return response()->json($result, ($result['message'] ?? '') === 'Layanan tidak dikenal.' ? 422 : 500);
         }
 
-        $entry = $allowed[$service];
-        $output = shell_exec($entry['cmd'].' 2>&1');
+        $serviceSnapshot = $result['service'] ?? [];
+        $label = (string) ($serviceSnapshot['name'] ?? $service);
+        $action = (string) ($result['action'] ?? 'restart');
 
-        // Small wait then check status
-        sleep(1);
-        $status = trim((string) shell_exec('systemctl is-active '.escapeshellarg($service).' 2>/dev/null'));
-        $ok = $status === 'active';
+        $this->logActivity(
+            $action === 'start_permanent' ? 'started_permanent_service' : 'restarted_service',
+            'Server',
+            null,
+            $label
+        );
 
-        $label = $entry['label'];
-        $this->logActivity('restarted_service', 'Server', null, $label);
-
-        return response()->json([
-            'success' => $ok,
-            'status' => $status,
-            'message' => $ok ? "{$label} berhasil di-restart." : "Restart {$label} gagal. Status: {$status}.",
-        ]);
+        return response()->json($result);
     }
 
     public function clearRam()

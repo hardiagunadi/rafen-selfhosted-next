@@ -61,28 +61,37 @@
                         <tbody>
                             @foreach($services as $svc)
                             @php
-                                $isActive = $svc['status'] === 'active';
+                                $serviceKey = $svc['key'] ?? $svc['unit'];
+                                $isActive = (bool) ($svc['running'] ?? false);
                                 $badgeClass = $isActive ? 'badge-success' : 'badge-danger';
                                 $icon = $isActive ? 'fa-check-circle' : 'fa-times-circle';
-                                $statusLabel = $isActive ? 'Running' : strtoupper($svc['status'] ?: 'Unknown');
+                                $statusLabel = $svc['status_label'] ?? ($isActive ? 'Running' : strtoupper($svc['status'] ?: 'Unknown'));
                             @endphp
                             <tr>
                                 <td>
                                     <strong>{{ $svc['name'] }}</strong><br>
                                     <code class="small text-muted">{{ $svc['unit'] }}</code>
+                                    @if(!empty($svc['meta_text']))
+                                        <br>
+                                        <small class="text-muted" data-meta-unit="{{ $serviceKey }}">{{ $svc['meta_text'] }}</small>
+                                    @else
+                                        <small class="text-muted d-none" data-meta-unit="{{ $serviceKey }}"></small>
+                                    @endif
                                 </td>
                                 <td class="text-center">
-                                    <span class="badge {{ $badgeClass }}" data-badge-unit="{{ $svc['unit'] }}">
+                                    <span class="badge {{ $badgeClass }}" data-badge-unit="{{ $serviceKey }}">
                                         <i class="fas {{ $icon }} mr-1"></i>{{ $statusLabel }}
                                     </span>
                                 </td>
                                 <td class="text-center">
                                     <button type="button"
-                                        class="btn btn-sm btn-outline-warning btn-restart"
-                                        data-unit="{{ $svc['unit'] }}"
+                                        class="btn btn-sm {{ $svc['primary_action_class'] ?? 'btn-outline-warning' }} btn-service-action"
+                                        data-service-key="{{ $serviceKey }}"
+                                        data-action="{{ $svc['primary_action'] ?? 'restart' }}"
                                         data-name="{{ $svc['name'] }}"
-                                        title="Restart {{ $svc['name'] }}">
-                                        <i class="fas fa-redo-alt"></i> Restart
+                                        title="{{ ($svc['primary_action_label'] ?? 'Restart') . ' ' . $svc['name'] }}">
+                                        <i class="fas {{ $svc['primary_action_icon'] ?? 'fa-redo-alt' }}"></i>
+                                        {{ $svc['primary_action_label'] ?? 'Restart' }}
                                     </button>
                                 </td>
                             </tr>
@@ -182,32 +191,79 @@ function updateServiceBadge(unit, status) {
         + (isActive ? 'Running' : (status.toUpperCase() || 'Unknown'));
 }
 
-// Restart service
-$(document).on('click', '.btn-restart', function () {
+function updateServiceRow(service) {
+    if (!service) return;
+
+    const key = service.key || service.unit;
+    const badge = document.querySelector('[data-badge-unit="' + key + '"]');
+    const meta = document.querySelector('[data-meta-unit="' + key + '"]');
+    const button = document.querySelector('[data-service-key="' + key + '"]');
+    const isActive = !!service.running;
+    const statusLabel = service.status_label || (isActive ? 'Running' : ((service.status || 'unknown').toUpperCase()));
+
+    if (badge) {
+        badge.className = 'badge ' + (isActive ? 'badge-success' : 'badge-danger');
+        badge.innerHTML = '<i class="fas ' + (isActive ? 'fa-check-circle' : 'fa-times-circle') + ' mr-1"></i>' + statusLabel;
+    }
+
+    if (meta) {
+        if (service.meta_text) {
+            meta.textContent = service.meta_text;
+            meta.classList.remove('d-none');
+        } else {
+            meta.textContent = '';
+            meta.classList.add('d-none');
+        }
+    }
+
+    if (button) {
+        const btnClass = service.primary_action_class || (service.primary_action === 'start_permanent' ? 'btn-outline-success' : 'btn-outline-warning');
+        const btnIcon = service.primary_action_icon || (service.primary_action === 'start_permanent' ? 'fa-play' : 'fa-redo-alt');
+        const btnLabel = service.primary_action_label || (service.primary_action === 'start_permanent' ? 'Start Permanen' : 'Restart');
+
+        button.dataset.action = service.primary_action || 'restart';
+        button.className = 'btn btn-sm ' + btnClass + ' btn-service-action';
+        button.innerHTML = '<i class="fas ' + btnIcon + '"></i> ' + btnLabel;
+        button.title = btnLabel + ' ' + (service.name || 'service');
+    }
+}
+
+$(document).on('click', '.btn-service-action', function () {
     const btn = $(this);
-    const unit = btn.data('unit');
+    const serviceKey = btn.data('service-key');
     const name = btn.data('name');
+    const action = btn.data('action') || 'restart';
+    const originalHtml = btn.html();
+    const actionLabel = action === 'start_permanent' ? 'Start permanen' : 'Restart';
+    const actionHint = action === 'start_permanent'
+        ? 'Layanan akan di-enable dan dijalankan sekarang.'
+        : 'Layanan akan berhenti sebentar.';
 
-    if (!confirm('Restart ' + name + '? Layanan akan berhenti sebentar.')) return;
+    if (!confirm(actionLabel + ' ' + name + '? ' + actionHint)) return;
 
-    btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-1"></i> Restarting...');
+    btn.prop('disabled', true).html('<i class="fas fa-spinner fa-spin mr-1"></i> Memproses...');
 
-    const url = restartUrlTemplate.replace(':svc', encodeURIComponent(unit));
+    const url = restartUrlTemplate.replace(':svc', encodeURIComponent(serviceKey));
 
     $.ajax({
         url: url,
         method: 'POST',
+        data: { action: action },
         headers: { 'X-CSRF-TOKEN': csrfToken },
         success: function (res) {
             window.AppAjax.showToast(res.message, res.success ? 'success' : 'danger');
-            updateServiceBadge(unit, res.status);
+            updateServiceRow(res.service);
         },
         error: function (xhr) {
-            const msg = xhr.responseJSON?.message ?? 'Gagal melakukan restart.';
+            const msg = xhr.responseJSON?.message ?? 'Gagal menjalankan aksi layanan.';
             window.AppAjax.showToast(msg, 'danger');
         },
         complete: function () {
-            btn.prop('disabled', false).html('<i class="fas fa-redo-alt"></i> Restart');
+            btn.prop('disabled', false);
+
+            if (btn.find('.fa-spinner').length) {
+                btn.html(originalHtml);
+            }
         }
     });
 });
@@ -250,4 +306,3 @@ $('#btnClearRam').on('click', function () {
 });
 </script>
 @endpush
-

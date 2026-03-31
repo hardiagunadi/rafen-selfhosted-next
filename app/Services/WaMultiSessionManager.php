@@ -112,6 +112,33 @@ class WaMultiSessionManager
         ];
     }
 
+    public function startPermanent(): array
+    {
+        $ensure = $this->ensureRunning();
+
+        if (! ($ensure['success'] ?? false)) {
+            return $ensure;
+        }
+
+        $pm2 = $this->pm2Bin();
+        $pm2Home = $this->detectProcessContext()['pm2_home'] ?? $this->primaryPm2Home();
+        $save = Process::timeout(20)->run($this->buildShellCommand("{$pm2} save", $pm2Home));
+
+        if (! $save->successful()) {
+            return [
+                'success' => false,
+                'message' => 'wa-multi-session berjalan, tetapi gagal menyimpan daftar proses PM2: '.trim($save->errorOutput() ?: $save->output()),
+                'data' => $this->status(),
+            ];
+        }
+
+        return [
+            'success' => true,
+            'message' => 'wa-multi-session berhasil dijalankan dan disimpan ke PM2.',
+            'data' => $this->status(),
+        ];
+    }
+
     private function findProcess(?string $pm2Home = null): ?array
     {
         $pm2 = $this->pm2Bin();

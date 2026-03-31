@@ -399,7 +399,7 @@ class TenantSettingsController extends Controller
         return back()->with('success', 'Rekening utama berhasil diubah.');
     }
 
-    public function waGateway(Request $request)
+    public function waGateway(Request $request, WaMultiSessionManager $manager)
     {
         $user = $request->user();
         $isSelfHostedApp = (bool) config('license.self_hosted_enabled', false);
@@ -442,6 +442,14 @@ class TenantSettingsController extends Controller
 
         if ($isSelfHostedApp) {
             $pendingPlatformRequest = null;
+        }
+
+        if ($user->isSuperAdmin()) {
+            $waServiceStatus = [
+                'success' => true,
+                'message' => 'Status service berhasil diambil.',
+                'data' => $manager->status(),
+            ];
         }
 
         return view('wa-gateway.index', compact('settings', 'tenants', 'selectedTenant', 'waServiceStatus', 'pendingPlatformRequest', 'isSelfHostedApp'));

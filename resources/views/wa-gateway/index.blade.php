@@ -713,17 +713,26 @@
 
     {{-- Sidebar info --}}
     <div class="col-md-4">
-        @if(auth()->user()->isSuperAdmin())
+        @if(auth()->user()->isSuperAdmin() && ! $isSelfHostedApp)
         <div class="card card-outline card-info">
             <div class="card-header">
                 <h3 class="card-title"><i class="fas fa-server mr-1"></i> {{ $isSelfHostedApp ? 'Service WA Gateway' : 'Service wa-multi-session' }}</h3>
             </div>
             <div class="card-body">
                 <div id="wa-service-status" class="small text-muted mb-2">
-                    @if(($waServiceStatus['data']['running'] ?? false) === true)
-                        Status: <strong>RUNNING</strong>
+                    @if(!empty($waServiceStatus['data']))
+                        @php
+                            $initialWaServiceRunning = (bool) ($waServiceStatus['data']['running'] ?? false);
+                            $initialWaServiceLabel = $initialWaServiceRunning
+                                ? 'RUNNING'
+                                : strtoupper((string) ($waServiceStatus['data']['pm2_status'] ?? 'STOPPED'));
+                        @endphp
+                        Status: <strong>{{ $initialWaServiceLabel }}</strong>
                         @if(!empty($waServiceStatus['data']['pm2_pid']))
                             | PID: {{ $waServiceStatus['data']['pm2_pid'] }}
+                        @endif
+                        @if(!empty($waServiceStatus['data']['url']))
+                            | URL: {{ $waServiceStatus['data']['url'] }}
                         @endif
                     @else
                         Belum dicek.
