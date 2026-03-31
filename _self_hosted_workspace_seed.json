@@ -1,9 +1,0 @@
-{
-    "created_at": "2026-03-31T06:02:38+07:00",
-    "source_repo": "rafen-saas",
-    "destination_repo": "rafen-selfhosted",
-    "target_directory": "/tmp/rafen-selfhosted-next",
-    "copied_file_count": 23,
-    "scaffold_file_count": 26,
-    "update_notice_path": "/tmp/rafen-selfhosted-next/_self_hosted_update_notice.json"
-}

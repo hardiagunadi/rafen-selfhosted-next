@@ -30,7 +30,7 @@ RUN_COMPOSER_INSTALL="${RUN_COMPOSER_INSTALL:-1}"
 RUN_NPM_BUILD="${RUN_NPM_BUILD:-1}"
 RUN_MIGRATE="${RUN_MIGRATE:-1}"
 RUN_SUPER_ADMIN_SETUP="${RUN_SUPER_ADMIN_SETUP:-1}"
-RUN_WIREGUARD_SYSTEM_BOOTSTRAP="${RUN_WIREGUARD_SYSTEM_BOOTSTRAP:-0}"
+RUN_WIREGUARD_SYSTEM_BOOTSTRAP="${RUN_WIREGUARD_SYSTEM_BOOTSTRAP:-1}"
 RUN_WIREGUARD_PACKAGE_INSTALL="${RUN_WIREGUARD_PACKAGE_INSTALL:-1}"
 APP_URL_OVERRIDE="${APP_URL_OVERRIDE:-}"
 APP_DOMAIN="${APP_DOMAIN:-}"
@@ -101,7 +101,8 @@ Options:
   --skip-migrate            Skip php artisan migrate --force
   --skip-super-admin        Skip php artisan user:create-super-admin
   --skip-system-bootstrap   Skip provisioning package sistem dan konfigurasi Nginx/PHP-FPM
-  --wireguard-system        Prepare OS-level WireGuard helper and service bootstrap
+  --wireguard-system        Force enable OS-level WireGuard bootstrap (default: enabled)
+  --skip-wireguard-system   Disable OS-level WireGuard bootstrap
   --skip-wireguard-package-install
                             Skip apt-get install for WireGuard packages during bootstrap
   --dry-run                 Print actions without executing commands
@@ -221,6 +222,10 @@ parse_args() {
                 ;;
             --wireguard-system)
                 RUN_WIREGUARD_SYSTEM_BOOTSTRAP=1
+                shift
+                ;;
+            --skip-wireguard-system)
+                RUN_WIREGUARD_SYSTEM_BOOTSTRAP=0
                 shift
                 ;;
             --skip-wireguard-package-install)
@@ -858,6 +863,10 @@ configure_environment() {
 require_license_public_key() {
     local public_key
 
+    if [ -n "$LICENSE_PUBLIC_KEY_VALUE" ]; then
+        return
+    fi
+
     public_key="$(read_env LICENSE_PUBLIC_KEY)"
 
     if [ -n "$public_key" ]; then
@@ -1102,6 +1111,54 @@ install_wireguard_packages() {
     run_command "$APT_GET_BIN" install -y wireguard-tools
 }
 
+ensure_wireguard_server_keypair() {
+    if [ "$RUN_WIREGUARD_SYSTEM_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    local private_key_path
+    local public_key_path
+    local private_group
+    private_key_path="${WG_SYSTEM_DIR}/server_private.key"
+    public_key_path="${WG_SYSTEM_DIR}/server_public.key"
+    private_group="root"
+
+    if group_exists "$APP_GROUP"; then
+        private_group="$APP_GROUP"
+    fi
+
+    if [ -s "$private_key_path" ] && [ -s "$public_key_path" ]; then
+        return
+    fi
+
+    command_exists wg || fail "Binary wg tidak ditemukan. Pastikan wireguard-tools terinstall sebelum bootstrap keypair."
+
+    info "Menyiapkan keypair server WireGuard di $WG_SYSTEM_DIR."
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] generate %s dan %s\n' "$private_key_path" "$public_key_path"
+        return 0
+    fi
+
+    install -d -m 0755 "$WG_SYSTEM_DIR"
+
+    if [ ! -s "$private_key_path" ]; then
+        (
+            umask 077
+            wg genkey >"$private_key_path"
+        )
+    fi
+
+    if [ ! -s "$public_key_path" ]; then
+        wg pubkey <"$private_key_path" >"$public_key_path"
+    fi
+
+    chown root:"$private_group" "$private_key_path"
+    chmod 0640 "$private_key_path"
+    chown root:root "$public_key_path"
+    chmod 0644 "$public_key_path"
+}
+
 write_wireguard_sync_helper() {
     if [ "$RUN_WIREGUARD_SYSTEM_BOOTSTRAP" != "1" ]; then
         return
@@ -1163,6 +1220,7 @@ bootstrap_wireguard_system_service() {
 
     install_dir "$WG_SYSTEM_DIR"
     install_wireguard_packages
+    ensure_wireguard_server_keypair
     write_wireguard_sync_helper
     write_wireguard_sudoers
 }

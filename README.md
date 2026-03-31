@@ -96,7 +96,9 @@ Jika repository tambahan tetap tidak menyediakan `php8.4`, installer akan berhen
 - `--app-url <url>`: override `APP_URL` penuh
 - `--license-public-key <key>`: public key verifikasi lisensi, wajib diisi
 - `--skip-system-bootstrap`: lewati provisioning package sistem dan Nginx/PHP-FPM
-- `--wireguard-system`: siapkan helper WireGuard level sistem
+- WireGuard bootstrap level sistem aktif secara default
+- `--skip-wireguard-system`: nonaktifkan bootstrap WireGuard level sistem bila diperlukan
+- `--wireguard-system`: force enable bootstrap WireGuard level sistem (opsional, untuk kompatibilitas)
 
 Environment variable penting:
 - `DEPLOY_USER`, `DEPLOY_GROUP`, `DEPLOY_PASSWORD`: kontrol user deploy untuk instalasi dari `root`

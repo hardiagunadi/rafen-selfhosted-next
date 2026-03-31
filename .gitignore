@@ -1,10 +1,33 @@
+# Dependencies
 /vendor
 /node_modules
-/public/storage
+
+# Local environment
+/.env
+/.env.*
+!/.env.example
+/.phpunit.result.cache
+/.codex-memory.md
+/.DS_Store
+/Thumbs.db
+
+# Build and public runtime assets
 /public/build
+/public/storage
+/public/wato/cron.log
+/public/wato/wato.db
+
+# Bootstrap cache
+/bootstrap/cache/*
+!/bootstrap/cache/.gitignore
+
+# Storage runtime artifacts
 /storage/*.key
-/storage/logs/*
-!/storage/logs/.gitignore
+/storage/app/*
+!/storage/app/.gitignore
+!/storage/app/license/
+/storage/app/license/*
+!/storage/app/license/.gitignore
 /storage/framework/cache/*
 !/storage/framework/cache/data/
 !/storage/framework/cache/data/.gitignore
@@ -13,15 +36,13 @@
 /storage/framework/views/*
 !/storage/framework/views/.gitignore
 /storage/framework/testing-machine-id
-/.env
-/.env.*
-!/.env.example
-/.phpunit.result.cache
+/storage/logs/*
+!/storage/logs/.gitignore
+
+# Package manager logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-/.DS_Store
-/Thumbs.db
-/.codex-memory.md
-/public/wato/cron.log
-/public/wato/wato.db
+
+# Generated self-hosted workspace artifacts
+/_self_hosted_*.json
