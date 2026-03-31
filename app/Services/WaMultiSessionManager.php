@@ -10,6 +10,7 @@ class WaMultiSessionManager
     public function ensureRunning(): array
     {
         $status = $this->status();
+        $pm2Home = $this->detectProcessContext()['pm2_home'] ?? $this->primaryPm2Home();
 
         if (($status['running'] ?? false) === true) {
             return [
@@ -19,7 +20,7 @@ class WaMultiSessionManager
             ];
         }
 
-        $start = Process::timeout(30)->run($this->buildShellCommand($this->startCommand()));
+        $start = Process::timeout(30)->run($this->buildShellCommand($this->startCommand(), $pm2Home));
 
         if (! $start->successful()) {
             return [
@@ -114,7 +115,13 @@ class WaMultiSessionManager
     private function findProcess(?string $pm2Home = null): ?array
     {
         $pm2 = $this->pm2Bin();
-        $result = Process::timeout(15)->run($this->buildShellCommand("{$pm2} jlist", $pm2Home ?? $this->primaryPm2Home()));
+        $resolvedPm2Home = $pm2Home ?? $this->primaryPm2Home();
+
+        if (! $this->hasPm2DaemonMarkers($resolvedPm2Home)) {
+            return null;
+        }
+
+        $result = Process::timeout(15)->run($this->buildShellCommand("{$pm2} jlist", $resolvedPm2Home));
 
         if (! $result->successful()) {
             return null;
@@ -192,7 +199,6 @@ class WaMultiSessionManager
         return 'cd '.escapeshellarg($path)
             .' && mkdir -p '.escapeshellarg($logDir)
             .' && touch '.escapeshellarg($logFile)
-            .' && chmod 0666 '.escapeshellarg($logFile)
             .' && env '.$exports.' '.$pm2
             .' start '.escapeshellarg($script)
             .' --name '.escapeshellarg($name)
@@ -251,7 +257,13 @@ class WaMultiSessionManager
 
     private function primaryPm2Home(): string
     {
-        return trim((string) config('wa.multi_session.pm2_home', '/var/www/.pm2'));
+        $configured = trim((string) config('wa.multi_session.pm2_home', ''));
+
+        if ($configured !== '' && ! $this->isLegacyPm2Home($configured)) {
+            return $configured;
+        }
+
+        return '/home/deploy/.pm2';
     }
 
     /**
@@ -261,7 +273,6 @@ class WaMultiSessionManager
     {
         $homes = [
             $this->primaryPm2Home(),
-            '/var/www/.pm2',
             $this->currentUserPm2Home(),
             ...$this->discoveredPm2Homes(),
         ];
@@ -269,7 +280,7 @@ class WaMultiSessionManager
         return array_values(array_unique(array_filter(array_map(
             static fn ($home): string => trim((string) $home),
             $homes
-        ))));
+        ), fn (string $home): bool => $home !== '' && ! $this->isLegacyPm2Home($home))));
     }
 
     private function currentUserPm2Home(): ?string
@@ -286,6 +297,24 @@ class WaMultiSessionManager
         }
 
         return $homeDirectory.'/.pm2';
+    }
+
+    private function hasPm2DaemonMarkers(string $pm2Home): bool
+    {
+        $trimmed = trim($pm2Home);
+
+        if ($trimmed === '' || ! is_dir($trimmed)) {
+            return false;
+        }
+
+        return is_file($trimmed.'/pm2.pid')
+            || file_exists($trimmed.'/rpc.sock')
+            || file_exists($trimmed.'/pub.sock');
+    }
+
+    private function isLegacyPm2Home(string $pm2Home): bool
+    {
+        return trim($pm2Home) === '/var/www/.pm2';
     }
 
     /**
