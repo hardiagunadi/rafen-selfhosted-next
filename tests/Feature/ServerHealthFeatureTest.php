@@ -106,3 +106,25 @@ it('starts inactive systemd service permanently when controlled from server heal
 
     Process::assertRan(fn ($process) => $process->command === 'sudo /bin/systemctl enable --now rafen-queue');
 });
+
+it('suggests rerunning installer when sudoers for server health is missing', function () {
+    config()->set('license.self_hosted_enabled', false);
+
+    Process::fake([
+        '/bin/systemctl is-active rafen-queue' => Process::result('inactive', '', 3),
+        'sudo /bin/systemctl enable --now rafen-queue' => Process::result(
+            '',
+            'sudo: a terminal is required to read the password; either use the -S option to read from standard input or configure an askpass helper',
+            1
+        ),
+    ]);
+
+    $manager = Mockery::mock(WaMultiSessionManager::class);
+    $manager->shouldNotReceive('status');
+    $this->app->instance(WaMultiSessionManager::class, $manager);
+
+    $result = app(ServerHealthService::class)->control('rafen-queue');
+
+    expect($result['success'])->toBeFalse()
+        ->and($result['message'])->toContain('sudoers Server Health terpasang');
+});

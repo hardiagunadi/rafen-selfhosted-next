@@ -4,6 +4,7 @@ use App\Models\SystemLicense;
 use App\Models\User;
 use App\Services\LicenseFingerprintService;
 use App\Services\LicenseSignatureService;
+use App\Services\ServerHealthService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
 
@@ -127,7 +128,17 @@ it('generates activation request file from command', function () {
 it('refreshes system license from disk using command', function () {
     writeStageTwoLicense($this, ['core', 'vpn']);
 
+    $serverHealthService = Mockery::mock(ServerHealthService::class);
+    $serverHealthService->shouldReceive('startInactiveLicensedServices')->once()->andReturn([
+        'attempted' => 1,
+        'started' => ['Scheduler Timer'],
+        'already_running' => ['Queue Worker'],
+        'failed' => [],
+    ]);
+    $this->app->instance(ServerHealthService::class, $serverHealthService);
+
     $this->artisan('license:refresh')
+        ->expectsOutputToContain('Bootstrapped : 1 started, 1 already running, 0 failed')
         ->assertExitCode(0);
 
     $license = SystemLicense::query()->first();

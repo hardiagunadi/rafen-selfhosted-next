@@ -3,6 +3,7 @@
 use App\Models\User;
 use App\Services\LicenseFingerprintService;
 use App\Services\LicenseSignatureService;
+use App\Services\ServerHealthService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
@@ -125,6 +126,14 @@ it('shows the system license menu near email settings for super admin', function
 it('accepts a valid uploaded system license', function () {
     $superAdmin = createSuperAdminForLicense();
     $payload = makeLicensePayload($this);
+    $serverHealthService = Mockery::mock(ServerHealthService::class);
+    $serverHealthService->shouldReceive('startInactiveLicensedServices')->once()->andReturn([
+        'attempted' => 1,
+        'started' => ['Queue Worker'],
+        'already_running' => [],
+        'failed' => [],
+    ]);
+    $this->app->instance(ServerHealthService::class, $serverHealthService);
 
     $upload = UploadedFile::fake()->createWithContent(
         'rafen.lic',
@@ -136,7 +145,7 @@ it('accepts a valid uploaded system license', function () {
             'license_file' => $upload,
         ])
         ->assertRedirect(route('super-admin.settings.license'))
-        ->assertSessionHas('success');
+        ->assertSessionHas('success', fn (string $message): bool => str_contains($message, 'Queue Worker'));
 
     $this->actingAs($superAdmin)
         ->get(route('super-admin.dashboard'))

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Services\ServerHealthService;
 use App\Services\SystemLicenseService;
 use Illuminate\Console\Command;
 
@@ -11,7 +12,10 @@ class RefreshSystemLicense extends Command
 
     protected $description = 'Baca ulang dan verifikasi file lisensi dari disk.';
 
-    public function handle(SystemLicenseService $systemLicenseService): int
+    public function handle(
+        SystemLicenseService $systemLicenseService,
+        ServerHealthService $serverHealthService
+    ): int
     {
         $license = $systemLicenseService->syncFromDisk();
         $statusLabel = $systemLicenseService->statusLabel($license->status);
@@ -23,6 +27,19 @@ class RefreshSystemLicense extends Command
 
         if ($license->validation_error) {
             $this->warn('Validation   : '.$license->validation_error);
+        }
+
+        if ($license->is_valid) {
+            $summary = $serverHealthService->startInactiveLicensedServices();
+
+            $this->line('Bootstrapped : '
+                .count($summary['started']).' started, '
+                .count($summary['already_running']).' already running, '
+                .count($summary['failed']).' failed');
+
+            foreach ($summary['failed'] as $failure) {
+                $this->warn('Service      : '.$failure['name'].' => '.$failure['message']);
+            }
         }
 
         return self::SUCCESS;

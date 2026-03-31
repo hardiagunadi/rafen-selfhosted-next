@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\UpdateSystemLicensePublicKeyRequest;
 use App\Http\Requests\UploadSystemLicenseRequest;
 use App\Services\LicenseActivationRequestService;
+use App\Services\ServerHealthService;
 use App\Services\SystemLicenseService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
@@ -22,16 +23,21 @@ class SuperAdminLicenseController extends Controller
         ]);
     }
 
-    public function update(UploadSystemLicenseRequest $request, SystemLicenseService $systemLicenseService): RedirectResponse
-    {
+    public function update(
+        UploadSystemLicenseRequest $request,
+        SystemLicenseService $systemLicenseService,
+        ServerHealthService $serverHealthService,
+    ): RedirectResponse {
         $this->ensureSelfHostedEnabled($systemLicenseService);
 
         $license = $systemLicenseService->storeUploadedLicense($request->file('license_file'));
 
         if ($license->is_valid) {
-            return redirect()
-                ->route('super-admin.settings.license')
-                ->with('success', 'Lisensi sistem berhasil diunggah dan diverifikasi.');
+            return $this->withServiceBootstrapFeedback(
+                redirect()->route('super-admin.settings.license'),
+                'Lisensi sistem berhasil diunggah dan diverifikasi.',
+                $serverHealthService->startInactiveLicensedServices()
+            );
         }
 
         return redirect()
@@ -42,6 +48,7 @@ class SuperAdminLicenseController extends Controller
     public function updatePublicKey(
         UpdateSystemLicensePublicKeyRequest $request,
         SystemLicenseService $systemLicenseService,
+        ServerHealthService $serverHealthService,
     ): RedirectResponse {
         $this->ensureSelfHostedEnabled($systemLicenseService);
         abort_unless(
@@ -55,6 +62,14 @@ class SuperAdminLicenseController extends Controller
 
         if ($license->is_valid) {
             $message .= ' Lisensi yang sudah diunggah juga berhasil diverifikasi ulang.';
+        }
+
+        if ($license->is_valid) {
+            return $this->withServiceBootstrapFeedback(
+                redirect()->route('super-admin.settings.license'),
+                $message,
+                $serverHealthService->startInactiveLicensedServices()
+            );
         }
 
         return redirect()
@@ -83,5 +98,41 @@ class SuperAdminLicenseController extends Controller
         if (! $systemLicenseService->isSelfHostedEnabled()) {
             throw new NotFoundHttpException;
         }
+    }
+
+    /**
+     * @param  array{
+     *     attempted:int,
+     *     started:list<string>,
+     *     already_running:list<string>,
+     *     failed:list<array{name:string,message:string}>
+     * }  $summary
+     */
+    private function withServiceBootstrapFeedback(
+        RedirectResponse $redirect,
+        string $successMessage,
+        array $summary
+    ): RedirectResponse
+    {
+        $message = $successMessage;
+
+        if ($summary['started'] !== []) {
+            $message .= sprintf(
+                ' %d layanan berlisensi berhasil dijalankan otomatis: %s.',
+                count($summary['started']),
+                implode(', ', $summary['started'])
+            );
+        }
+
+        $redirect->with('success', $message);
+
+        if ($summary['failed'] !== []) {
+            $redirect->with('warning', 'Lisensi aktif, tetapi beberapa layanan gagal dijalankan otomatis: '.implode('; ', array_map(
+                fn (array $item): string => $item['name'].' ('.$item['message'].')',
+                $summary['failed']
+            )));
+        }
+
+        return $redirect;
     }
 }

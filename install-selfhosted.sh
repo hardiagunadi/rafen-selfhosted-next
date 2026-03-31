@@ -53,6 +53,7 @@ WG_SYSTEM_INTERFACE="${WG_SYSTEM_INTERFACE:-wg0}"
 WG_SYSTEM_SERVICE="${WG_SYSTEM_SERVICE:-wg-quick@${WG_SYSTEM_INTERFACE}}"
 WG_SUDOERS_PATH="${WG_SUDOERS_PATH:-/etc/sudoers.d/rafen-wireguard}"
 WG_SYNC_HELPER_PATH="${WG_SYNC_HELPER_PATH:-$APP_DIR/scripts/wireguard-apply.sh}"
+SERVER_HEALTH_SUDOERS_PATH="${SERVER_HEALTH_SUDOERS_PATH:-/etc/sudoers.d/rafen-server-health}"
 SYSTEM_PRIMARY_IP="${SYSTEM_PRIMARY_IP:-}"
 NGINX_BIN="${NGINX_BIN:-nginx}"
 NGINX_SERVICE="${NGINX_SERVICE:-nginx}"
@@ -123,7 +124,7 @@ Env overrides:
   SELF_HOSTED_REGISTRY_URL_VALUE, SELF_HOSTED_REGISTRY_TOKEN_VALUE, ADMIN_PHONE,
   RUN_WIREGUARD_PACKAGE_INSTALL, DB_CONNECTION, DB_HOST, DB_PORT,
   DB_DATABASE, DB_USERNAME, DB_PASSWORD, WG_SYSTEM_DIR, WG_SYSTEM_INTERFACE,
-  WG_SYSTEM_SERVICE, WG_SUDOERS_PATH, WG_SYNC_HELPER_PATH, APP_DOMAIN,
+  WG_SYSTEM_SERVICE, WG_SUDOERS_PATH, WG_SYNC_HELPER_PATH, SERVER_HEALTH_SUDOERS_PATH, APP_DOMAIN,
   SYSTEM_PRIMARY_IP, NGINX_SITE_AVAILABLE_PATH, NGINX_SITE_ENABLED_PATH,
   NGINX_DEFAULT_SITE_PATH, PHP_FPM_SERVICE, PHP_FPM_SOCK.
 EOF
@@ -140,7 +141,7 @@ elevate_with_sudo() {
 
     sudo -v || fail "Autentikasi sudo gagal."
 
-    exec sudo --preserve-env=APP_DIR,EXPECTED_APP_DIR,ENV_FILE,ENV_EXAMPLE_FILE,DEPLOY_USER,DEPLOY_GROUP,DEPLOY_PASSWORD,APP_USER,APP_GROUP,SYSTEM_TIMEZONE,PHP_BIN,COMPOSER_BIN,NPM_BIN,APT_GET_BIN,SYSTEMCTL_BIN,VISUDO_BIN,ALLOW_NON_ROOT,DRY_RUN,RUN_COMPOSER_INSTALL,RUN_NPM_BUILD,RUN_MIGRATE,RUN_SUPER_ADMIN_SETUP,RUN_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_PACKAGE_INSTALL,APP_URL_OVERRIDE,APP_DOMAIN,LICENSE_PUBLIC_KEY_VALUE,SELF_HOSTED_REGISTRY_URL_VALUE,SELF_HOSTED_REGISTRY_TOKEN_VALUE,ADMIN_NAME,ADMIN_EMAIL,ADMIN_PHONE,ADMIN_PASSWORD,DB_CONNECTION,DB_HOST,DB_PORT,DB_DATABASE,DB_USERNAME,DB_PASSWORD,WG_SYSTEM_DIR,WG_SYSTEM_INTERFACE,WG_SYSTEM_SERVICE,WG_SUDOERS_PATH,WG_SYNC_HELPER_PATH,SYSTEM_PRIMARY_IP,NGINX_BIN,NGINX_SERVICE,NGINX_SITE_AVAILABLE_PATH,NGINX_SITE_ENABLED_PATH,NGINX_DEFAULT_SITE_PATH,PHP_FPM_SERVICE,PHP_FPM_SOCK bash "$0" "$@"
+    exec sudo --preserve-env=APP_DIR,EXPECTED_APP_DIR,ENV_FILE,ENV_EXAMPLE_FILE,DEPLOY_USER,DEPLOY_GROUP,DEPLOY_PASSWORD,APP_USER,APP_GROUP,SYSTEM_TIMEZONE,PHP_BIN,COMPOSER_BIN,NPM_BIN,APT_GET_BIN,SYSTEMCTL_BIN,VISUDO_BIN,ALLOW_NON_ROOT,DRY_RUN,RUN_COMPOSER_INSTALL,RUN_NPM_BUILD,RUN_MIGRATE,RUN_SUPER_ADMIN_SETUP,RUN_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_PACKAGE_INSTALL,APP_URL_OVERRIDE,APP_DOMAIN,LICENSE_PUBLIC_KEY_VALUE,SELF_HOSTED_REGISTRY_URL_VALUE,SELF_HOSTED_REGISTRY_TOKEN_VALUE,ADMIN_NAME,ADMIN_EMAIL,ADMIN_PHONE,ADMIN_PASSWORD,DB_CONNECTION,DB_HOST,DB_PORT,DB_DATABASE,DB_USERNAME,DB_PASSWORD,WG_SYSTEM_DIR,WG_SYSTEM_INTERFACE,WG_SYSTEM_SERVICE,WG_SUDOERS_PATH,WG_SYNC_HELPER_PATH,SERVER_HEALTH_SUDOERS_PATH,SYSTEM_PRIMARY_IP,NGINX_BIN,NGINX_SERVICE,NGINX_SITE_AVAILABLE_PATH,NGINX_SITE_ENABLED_PATH,NGINX_DEFAULT_SITE_PATH,PHP_FPM_SERVICE,PHP_FPM_SOCK bash "$0" "$@"
 }
 
 parse_args() {
@@ -278,6 +279,19 @@ require_root() {
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+resolve_command_path() {
+    local candidate="$1"
+
+    case "$candidate" in
+        /*)
+            printf '%s' "$candidate"
+            return 0
+            ;;
+    esac
+
+    command -v "$candidate" 2>/dev/null || return 1
 }
 
 resolve_php_cli_bin() {
@@ -1460,6 +1474,32 @@ write_wireguard_sudoers() {
     fi
 }
 
+write_server_health_sudoers() {
+    if [ "$ALLOW_NON_ROOT" = "1" ]; then
+        return
+    fi
+
+    local systemctl_path
+    local sudoers_content
+
+    systemctl_path="$(resolve_command_path "$SYSTEMCTL_BIN" || true)"
+    [ -n "$systemctl_path" ] || fail "Binary systemctl tidak ditemukan untuk sudoers Server Health: $SYSTEMCTL_BIN"
+
+    sudoers_content="$APP_USER ALL=(root) NOPASSWD: ${systemctl_path} restart rafen-queue, ${systemctl_path} enable --now rafen-queue, ${systemctl_path} restart rafen-schedule.timer, ${systemctl_path} enable --now rafen-schedule.timer, ${systemctl_path} restart freeradius, ${systemctl_path} enable --now freeradius, ${systemctl_path} restart genieacs-cwmp, ${systemctl_path} enable --now genieacs-cwmp, ${systemctl_path} restart genieacs-nbi, ${systemctl_path} enable --now genieacs-nbi, /bin/sync, /usr/bin/tee /proc/sys/vm/drop_caches"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] write sudoers %s => %s\n' "$SERVER_HEALTH_SUDOERS_PATH" "$sudoers_content"
+        return 0
+    fi
+
+    printf '%s\n' "$sudoers_content" >"$SERVER_HEALTH_SUDOERS_PATH"
+    chmod 0440 "$SERVER_HEALTH_SUDOERS_PATH"
+
+    if command_exists "$VISUDO_BIN"; then
+        run_command "$VISUDO_BIN" -cf "$SERVER_HEALTH_SUDOERS_PATH"
+    fi
+}
+
 bootstrap_wireguard_system_service() {
     if [ "$RUN_WIREGUARD_SYSTEM_BOOTSTRAP" != "1" ]; then
         return
@@ -1470,6 +1510,10 @@ bootstrap_wireguard_system_service() {
     ensure_wireguard_server_keypair
     write_wireguard_sync_helper
     write_wireguard_sudoers
+}
+
+bootstrap_server_health_sudoers() {
+    write_server_health_sudoers
 }
 
 composer_install() {
@@ -1633,6 +1677,7 @@ show_status() {
     printf 'PHP-FPM Service      : %s\n' "$(detect_php_fpm_service)"
     printf 'WG Helper Path       : %s\n' "$WG_SYNC_HELPER_PATH"
     printf 'WG System Service    : %s\n' "$WG_SYSTEM_SERVICE"
+    printf 'Server Health Sudoers: %s\n' "$SERVER_HEALTH_SUDOERS_PATH"
 }
 
 run_install_or_deploy() {
@@ -1656,6 +1701,7 @@ run_install_or_deploy() {
     write_nginx_site_config
     enable_nginx_site
     bootstrap_wireguard_system_service
+    bootstrap_server_health_sudoers
     run_artisan_runtime_setup
     apply_basic_permissions
     restart_web_services

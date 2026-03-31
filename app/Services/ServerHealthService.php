@@ -49,6 +49,51 @@ class ServerHealthService
     }
 
     /**
+     * @return array{
+     *     attempted:int,
+     *     started:list<string>,
+     *     already_running:list<string>,
+     *     failed:list<array{name:string,message:string}>
+     * }
+     */
+    public function startInactiveLicensedServices(): array
+    {
+        $summary = [
+            'attempted' => 0,
+            'started' => [],
+            'already_running' => [],
+            'failed' => [],
+        ];
+
+        foreach ($this->services() as $service) {
+            $name = (string) ($service['name'] ?? $service['key'] ?? 'service');
+
+            if ((bool) ($service['running'] ?? false)) {
+                $summary['already_running'][] = $name;
+
+                continue;
+            }
+
+            $summary['attempted']++;
+
+            $result = $this->control((string) $service['key'], 'start_permanent');
+
+            if ((bool) ($result['success'] ?? false)) {
+                $summary['started'][] = $name;
+
+                continue;
+            }
+
+            $summary['failed'][] = [
+                'name' => $name,
+                'message' => (string) ($result['message'] ?? "Gagal menjalankan {$name}."),
+            ];
+        }
+
+        return $summary;
+    }
+
+    /**
      * @return array<string, array<string, mixed>>
      */
     private function definitions(): array
@@ -190,7 +235,7 @@ class ServerHealthService
                     ? "{$name} berhasil dijalankan permanen."
                     : "{$name} berhasil di-restart.")
                 : ($rawError !== ''
-                    ? "Aksi {$name} gagal: {$rawError}"
+                    ? $this->formatSystemdFailureMessage($name, $rawError)
                     : (($action === 'start_permanent'
                         ? "Gagal menjalankan permanen {$name}."
                         : "Restart {$name} gagal.").' Status: '.$service['status'])),
@@ -228,6 +273,18 @@ class ServerHealthService
         }
 
         return trim($result->errorOutput());
+    }
+
+    private function formatSystemdFailureMessage(string $name, string $rawError): string
+    {
+        $message = "Aksi {$name} gagal: {$rawError}";
+
+        if (str_contains($rawError, 'sudo: a terminal is required')
+            || str_contains($rawError, 'sudo: a password is required')) {
+            return $message.' Jalankan ulang installer/deploy self-hosted sebagai root agar sudoers Server Health terpasang.';
+        }
+
+        return $message;
     }
 
     /**
