@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\File;
 use RuntimeException;
 
 class SelfHostedInstallRegistrationService
@@ -47,10 +48,58 @@ class SelfHostedInstallRegistrationService
             throw new RuntimeException('Registrasi install-time gagal: HTTP '.$response->status().' '.$response->body());
         }
 
+        $responsePayload = $response->json();
+        $registryTokenUpdated = $this->syncRegistryTokenFromResponse(is_array($responsePayload) ? $responsePayload : []);
+
         return [
             'payload' => $payload,
-            'response' => $response->json(),
+            'response' => $responsePayload,
+            'registry_token_updated' => $registryTokenUpdated,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $responsePayload
+     */
+    private function syncRegistryTokenFromResponse(array $responsePayload): bool
+    {
+        $newToken = trim((string) ($responsePayload['registry_token'] ?? ''));
+
+        if ($newToken === '') {
+            return false;
+        }
+
+        $currentToken = trim((string) config('services.self_hosted_registry.token', ''));
+
+        if ($currentToken === $newToken) {
+            return false;
+        }
+
+        $this->writeEnvironmentValue('SELF_HOSTED_REGISTRY_TOKEN', $newToken);
+        config()->set('services.self_hosted_registry.token', $newToken);
+
+        return true;
+    }
+
+    private function writeEnvironmentValue(string $key, string $value): void
+    {
+        $environmentFilePath = app()->environmentFilePath();
+
+        if (! File::exists($environmentFilePath)) {
+            File::put($environmentFilePath, '');
+        }
+
+        $environmentContents = (string) File::get($environmentFilePath);
+        $pattern = '/^'.preg_quote($key, '/').'=.*$/m';
+        $line = $key.'='.$value;
+
+        if (preg_match($pattern, $environmentContents)) {
+            $environmentContents = (string) preg_replace($pattern, $line, $environmentContents);
+        } else {
+            $environmentContents = rtrim($environmentContents).PHP_EOL.$line.PHP_EOL;
+        }
+
+        File::put($environmentFilePath, $environmentContents);
     }
 
     private function normalized(?string $value): ?string

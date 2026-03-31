@@ -51,6 +51,9 @@ class RegisterSelfHostedInstall extends Command
         $this->line('Tenant ID     : '.((string) ($response['tenant_id'] ?? '-')));
         $this->line('Tenant Name   : '.((string) ($response['tenant_name'] ?? '-')));
         $this->line('Fingerprint   : '.((string) ($payload['fingerprint'] ?? '-')));
+        if ((bool) ($result['registry_token_updated'] ?? false)) {
+            $this->line('Registry Token: diperbarui otomatis dari SaaS untuk instance ini.');
+        }
 
         return self::SUCCESS;
     }

@@ -32,6 +32,7 @@ bash install-selfhosted.sh install \
   --license-public-key 'BASE64_PUBLIC_KEY_DARI_VENDOR' \
   --admin-name 'Super Admin' \
   --admin-email admin@example.com \
+  --admin-phone '081234567890' \
   --admin-password 'password-kuat'
 ```
 
@@ -42,10 +43,32 @@ bash install-selfhosted.sh install \
   --license-public-key 'BASE64_PUBLIC_KEY_DARI_VENDOR' \
   --admin-name 'Super Admin' \
   --admin-email admin@example.com \
+  --admin-phone '081234567890' \
+  --admin-password 'password-kuat'
+```
+
+Kalau installer ingin langsung sinkron ke SaaS saat install-time:
+
+```bash
+bash install-selfhosted.sh install \
+  --domain billing.example.com \
+  --license-public-key 'BASE64_PUBLIC_KEY_DARI_VENDOR' \
+  --registry-url 'https://saas.example.com/api/self-hosted/install-registrations' \
+  --registry-token 'TOKEN_BOOTSTRAP_DARI_SAAS' \
+  --admin-name 'Super Admin' \
+  --admin-email admin@example.com \
+  --admin-phone '081234567890' \
   --admin-password 'password-kuat'
 ```
 
 Jika `--domain` tidak diisi, installer akan fallback ke IP utama server untuk `APP_URL` dan konfigurasi Nginx.
+
+Untuk mode interaktif:
+- installer akan menyalin `.env.example` menjadi `.env` bila file belum ada
+- installer akan meminta `LICENSE_PUBLIC_KEY`
+- installer akan menanyakan apakah sinkronisasi install-time ke SaaS ingin diaktifkan
+- jika sinkronisasi diaktifkan, installer akan meminta `SELF_HOSTED_REGISTRY_URL`, `SELF_HOSTED_REGISTRY_TOKEN`, `nama`, `email`, dan `nomor WhatsApp` admin
+- sebelum lanjut, installer akan menampilkan ringkasan konfigurasi dan meminta konfirmasi akhir
 
 ## Mode Akses
 
@@ -95,7 +118,23 @@ Jika repository tambahan tetap tidak menyediakan `php8.4`, installer akan berhen
 - `--domain <host>`: set domain/host publik
 - `--app-url <url>`: override `APP_URL` penuh
 - `--license-public-key <key>`: public key verifikasi lisensi, wajib diisi
+- `--registry-url <url>`: endpoint API registrasi install-time ke SaaS
+- `--registry-token <token>`: bearer token untuk registrasi install-time ke SaaS
+- `--admin-name <name>`: nama super admin awal
+- `--admin-email <email>`: email super admin awal
+- `--admin-phone <phone>`: nomor WhatsApp super admin awal
+- `--admin-password <value>`: password super admin awal
+- `--db-connection <driver>`: koneksi database, `sqlite` atau `mysql`
+- `--db-host <host>`: host database untuk mode non-sqlite
+- `--db-port <port>`: port database untuk mode non-sqlite
+- `--db-name <name|path>`: nama database atau path file sqlite
+- `--db-user <user>`: username database untuk mode non-sqlite
+- `--db-password <value>`: password database untuk mode non-sqlite
 - `--skip-system-bootstrap`: lewati provisioning package sistem dan Nginx/PHP-FPM
+- `--skip-composer-install`: lewati `composer install`
+- `--skip-npm-build`: lewati `npm install` dan build frontend
+- `--skip-migrate`: lewati `php artisan migrate --force`
+- `--skip-super-admin`: lewati pembuatan super admin awal
 - WireGuard bootstrap level sistem aktif secara default
 - `--skip-wireguard-system`: nonaktifkan bootstrap WireGuard level sistem bila diperlukan
 - `--wireguard-system`: force enable bootstrap WireGuard level sistem (opsional, untuk kompatibilitas)
@@ -105,6 +144,29 @@ Environment variable penting:
 - `PHP_PREFERRED_VERSION`: versi PHP target, default `8.4`
 - `PHP_BIN`: override binary PHP secara manual bila memang diperlukan
 - `PHP_FPM_SERVICE`, `PHP_FPM_SOCK`: override service/socket PHP-FPM
+- `LICENSE_PUBLIC_KEY_VALUE`: isi public key lisensi tanpa prompt interaktif
+- `SELF_HOSTED_REGISTRY_URL_VALUE`, `SELF_HOSTED_REGISTRY_TOKEN_VALUE`: isi endpoint dan token bootstrap registrasi ke SaaS tanpa prompt interaktif
+- `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PHONE`, `ADMIN_PASSWORD`: isi data super admin awal via environment
+- `APP_DOMAIN`, `APP_URL_OVERRIDE`: override domain atau `APP_URL` via environment
+- `DB_CONNECTION`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`: override database via environment
+
+## Sinkronisasi ke SaaS
+
+Yang dibutuhkan di sisi self-hosted:
+- `SELF_HOSTED_REGISTRY_URL`: endpoint SaaS, biasanya `https://domain-saas/api/self-hosted/install-registrations`
+- `SELF_HOSTED_REGISTRY_TOKEN`: token bootstrap dari SaaS
+
+Yang dibutuhkan di sisi SaaS:
+- token bootstrap global untuk menerima registrasi awal
+- setelah tenant self-hosted terdaftar, SaaS akan membuat token per-instance untuk tenant tersebut
+
+Perilaku token saat ini:
+- token global SaaS dipakai untuk bootstrap registrasi pertama instance baru
+- setelah registrasi sukses, SaaS mengembalikan `registry_token` khusus instance
+- self-hosted installer/command akan menyimpan token baru itu otomatis ke `.env`
+- setelah tenant punya token per-instance, endpoint SaaS hanya menerima token milik tenant tersebut untuk fingerprint yang sama
+
+Artinya, generator token global di halaman `Public Key Lisensi` SaaS dipakai untuk bootstrap install baru, sedangkan rotasi token harian per tenant dilakukan dari halaman detail tenant self-hosted di SaaS.
 
 ## Catatan Operasional
 
