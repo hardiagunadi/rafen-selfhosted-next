@@ -236,7 +236,7 @@ class WaMultiSessionManager
 
     private function buildShellCommand(string $inner, string $pm2Home): string
     {
-        return 'bash -lc '.escapeshellarg("PM2_HOME={$pm2Home} {$inner}");
+        return 'bash -lc '.escapeshellarg('PM2_HOME='.$this->normalizePm2Home($pm2Home).' '.$inner);
     }
 
     private function baseUrl(): string
@@ -284,13 +284,29 @@ class WaMultiSessionManager
 
     private function primaryPm2Home(): string
     {
-        $configured = trim((string) config('wa.multi_session.pm2_home', ''));
-
-        if ($configured !== '' && ! $this->isLegacyPm2Home($configured)) {
-            return $configured;
+        foreach ($this->preferredPm2Homes() as $candidate) {
+            if ($this->isUsablePm2Home($candidate)) {
+                return $candidate;
+            }
         }
 
-        return '/home/deploy/.pm2';
+        return storage_path('.pm2');
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function preferredPm2Homes(): array
+    {
+        $configured = trim((string) config('wa.multi_session.pm2_home', ''));
+        $storageDefault = storage_path('.pm2');
+
+        return array_values(array_unique(array_filter([
+            $configured,
+            $storageDefault,
+            '/home/deploy/.pm2',
+            $this->currentUserPm2Home(),
+        ], fn ($home): bool => trim((string) $home) !== '' && ! $this->isLegacyPm2Home((string) $home))));
     }
 
     /**
@@ -328,7 +344,7 @@ class WaMultiSessionManager
 
     private function hasPm2DaemonMarkers(string $pm2Home): bool
     {
-        $trimmed = trim($pm2Home);
+        $trimmed = $this->normalizePm2Home($pm2Home);
 
         if ($trimmed === '' || ! is_dir($trimmed)) {
             return false;
@@ -342,6 +358,34 @@ class WaMultiSessionManager
     private function isLegacyPm2Home(string $pm2Home): bool
     {
         return trim($pm2Home) === '/var/www/.pm2';
+    }
+
+    private function normalizePm2Home(?string $pm2Home): string
+    {
+        $trimmed = trim((string) $pm2Home);
+
+        if ($trimmed !== '' && ! $this->isLegacyPm2Home($trimmed) && $this->isUsablePm2Home($trimmed)) {
+            return $trimmed;
+        }
+
+        return $this->primaryPm2Home();
+    }
+
+    private function isUsablePm2Home(?string $pm2Home): bool
+    {
+        $trimmed = trim((string) $pm2Home);
+
+        if ($trimmed === '' || $this->isLegacyPm2Home($trimmed)) {
+            return false;
+        }
+
+        if (is_dir($trimmed)) {
+            return is_writable($trimmed);
+        }
+
+        $parent = dirname($trimmed);
+
+        return $parent !== '' && is_dir($parent) && is_writable($parent);
     }
 
     /**
