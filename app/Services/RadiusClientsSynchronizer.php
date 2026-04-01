@@ -13,6 +13,8 @@ use Symfony\Component\Process\Process;
 
 class RadiusClientsSynchronizer
 {
+    private const string SYNC_HELPER_PATH = '/usr/local/bin/rafen-sync-radius-clients';
+
     public function __construct(private Filesystem $filesystem) {}
 
     /**
@@ -43,12 +45,17 @@ class RadiusClientsSynchronizer
         }
 
         // Fallback: use sudo wrapper script (requires /etc/sudoers.d/rafen-freeradius entry)
-        $process = Process::fromShellCommandline('sudo /usr/local/bin/rafen-sync-radius-clients');
+        $process = Process::fromShellCommandline('sudo -n '.self::SYNC_HELPER_PATH);
         $process->run();
 
         if (! $process->isSuccessful()) {
+            $errorOutput = $this->processOutput($process);
+            $hint = $this->needsFreeRadiusBootstrap($errorOutput)
+                ? ' Jalankan `bash install-selfhosted.sh deploy` sebagai root agar helper dan sudoers FreeRADIUS terpasang.'
+                : '';
+
             throw new RuntimeException(
-                "Tidak dapat menulis ke {$directory} dan fallback sudo juga gagal: " . $process->getErrorOutput()
+                "Tidak dapat menulis ke {$directory} dan fallback sudo juga gagal: {$errorOutput}.{$hint}"
             );
         }
     }
@@ -81,12 +88,78 @@ class RadiusClientsSynchronizer
             return;
         }
 
+        $process = $this->runShellCommand($command);
+
+        if ($process->isSuccessful()) {
+            return;
+        }
+
+        $errorOutput = $this->processOutput($process);
+        if (! $this->needsFreeRadiusBootstrap($errorOutput)) {
+            throw new ProcessFailedException($process);
+        }
+
+        $fallbackProcess = $this->attemptReloadFallback($command);
+        if ($fallbackProcess !== null && $fallbackProcess->isSuccessful()) {
+            return;
+        }
+
+        $detail = $fallbackProcess instanceof Process ? $this->processOutput($fallbackProcess) : $errorOutput;
+
+        throw new RuntimeException(
+            'Reload FreeRADIUS gagal karena akses sudo non-interaktif belum siap. Jalankan `bash install-selfhosted.sh deploy` sebagai root agar sudoers FreeRADIUS terpasang. Detail: '.$detail
+        );
+    }
+
+    private function attemptReloadFallback(string $command): ?Process
+    {
+        $fallbackCommands = [];
+
+        if ($this->filesystem->exists(self::SYNC_HELPER_PATH)) {
+            $fallbackCommands[] = 'sudo -n '.self::SYNC_HELPER_PATH.' --reload-only';
+        }
+
+        if (! str_contains($command, 'sudo')) {
+            $fallbackCommands[] = 'sudo -n systemctl reload freeradius';
+        }
+
+        $lastFailedProcess = null;
+
+        foreach (array_values(array_unique($fallbackCommands)) as $fallbackCommand) {
+            $fallbackProcess = $this->runShellCommand($fallbackCommand);
+            if ($fallbackProcess->isSuccessful()) {
+                return $fallbackProcess;
+            }
+
+            $lastFailedProcess = $fallbackProcess;
+        }
+
+        return $lastFailedProcess;
+    }
+
+    private function runShellCommand(string $command): Process
+    {
         $process = Process::fromShellCommandline($command);
         $process->run();
 
-        if (! $process->isSuccessful()) {
-            throw new ProcessFailedException($process);
-        }
+        return $process;
+    }
+
+    private function processOutput(Process $process): string
+    {
+        return trim($process->getErrorOutput() ?: $process->getOutput());
+    }
+
+    private function needsFreeRadiusBootstrap(string $output): bool
+    {
+        $normalized = Str::lower($output);
+
+        return str_contains($normalized, 'interactive authentication required')
+            || str_contains($normalized, 'a terminal is required to read the password')
+            || str_contains($normalized, 'password is required')
+            || str_contains($normalized, 'no askpass program specified')
+            || str_contains($normalized, 'command not found')
+            || str_contains($normalized, 'not found');
     }
 
     private function buildClientsPayload(Collection $connections): string

@@ -25,7 +25,14 @@ class CheckRadiusDictionary extends Command
     private string $dictionaryPath = '/etc/freeradius/3.0/dictionary';
 
     /** Path backup dictionary di repo */
-    private string $backupPath = '/var/www/rafen/freeradius-config/dictionary';
+    private string $backupPath;
+
+    public function __construct()
+    {
+        parent::__construct();
+
+        $this->backupPath = base_path('freeradius-config/dictionary');
+    }
 
     public function handle(): int
     {

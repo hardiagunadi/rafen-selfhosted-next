@@ -1,0 +1,21 @@
+# strip_pppoe_prefix
+#
+# MikroTik PPPoE server adds "pppoe-" prefix to the username
+# before sending to RADIUS (e.g. "pppoe-user@domain.com").
+# This policy strips that prefix and stores the real username
+# in Stripped-User-Name, which the SQL module will use for
+# radcheck/radreply lookups (via sql_user_name config).
+#
+# Called at the top of the authorize section, before sql.
+#
+strip_pppoe_prefix {
+    if (&User-Name && (&User-Name =~ /^pppoe-(.+)$/i)) {
+        update request {
+            &Stripped-User-Name := "%{1}"
+        }
+        updated
+    }
+    else {
+        noop
+    }
+}

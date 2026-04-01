@@ -19,6 +19,13 @@ PHP_PREFERRED_VERSION="${PHP_PREFERRED_VERSION:-8.4}"
 PHP_BIN_EXPLICIT="${PHP_BIN+x}"
 PHP_BIN="${PHP_BIN:-php}"
 NODE_PREFERRED_MAJOR="${NODE_PREFERRED_MAJOR:-22}"
+MONGODB_MAJOR="${MONGODB_MAJOR:-8.0}"
+GENIEACS_VERSION="${GENIEACS_VERSION:-1.2.14+260313cc72}"
+GENIEACS_USER="${GENIEACS_USER:-genieacs}"
+GENIEACS_GROUP="${GENIEACS_GROUP:-genieacs}"
+GENIEACS_DIR="${GENIEACS_DIR:-/opt/genieacs}"
+GENIEACS_ENV_FILE="${GENIEACS_ENV_FILE:-${GENIEACS_DIR}/genieacs.env}"
+GENIEACS_LOG_DIR="${GENIEACS_LOG_DIR:-/var/log/genieacs}"
 COMPOSER_BIN="${COMPOSER_BIN:-composer}"
 NPM_BIN="${NPM_BIN:-npm}"
 APT_GET_BIN="${APT_GET_BIN:-apt-get}"
@@ -33,6 +40,7 @@ RUN_SUPER_ADMIN_SETUP="${RUN_SUPER_ADMIN_SETUP:-1}"
 RUN_WIREGUARD_SYSTEM_BOOTSTRAP="${RUN_WIREGUARD_SYSTEM_BOOTSTRAP:-1}"
 RUN_WIREGUARD_PACKAGE_INSTALL="${RUN_WIREGUARD_PACKAGE_INSTALL:-1}"
 RUN_PM2_BOOTSTRAP="${RUN_PM2_BOOTSTRAP:-1}"
+RUN_GENIEACS_BOOTSTRAP="${RUN_GENIEACS_BOOTSTRAP:-1}"
 APP_URL_OVERRIDE="${APP_URL_OVERRIDE:-}"
 APP_DOMAIN="${APP_DOMAIN:-}"
 LICENSE_PUBLIC_KEY_VALUE="${LICENSE_PUBLIC_KEY_VALUE:-}"
@@ -43,11 +51,11 @@ ADMIN_EMAIL="${ADMIN_EMAIL:-}"
 ADMIN_PHONE="${ADMIN_PHONE:-}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
 RUN_SYSTEM_BOOTSTRAP="${RUN_SYSTEM_BOOTSTRAP:-1}"
-DB_CONNECTION="${DB_CONNECTION:-sqlite}"
+DB_CONNECTION="${DB_CONNECTION:-mariadb}"
 DB_HOST="${DB_HOST:-127.0.0.1}"
 DB_PORT="${DB_PORT:-3306}"
-DB_DATABASE="${DB_DATABASE:-$APP_DIR/database/database.sqlite}"
-DB_USERNAME="${DB_USERNAME:-root}"
+DB_DATABASE="${DB_DATABASE:-rafen_selfhosted}"
+DB_USERNAME="${DB_USERNAME:-rafen}"
 DB_PASSWORD="${DB_PASSWORD:-}"
 WG_SYSTEM_DIR="${WG_SYSTEM_DIR:-/etc/wireguard}"
 WG_SYSTEM_INTERFACE="${WG_SYSTEM_INTERFACE:-wg0}"
@@ -56,6 +64,8 @@ DEPLOY_SUDOERS_PATH="${DEPLOY_SUDOERS_PATH:-/etc/sudoers.d/rafen-deploy}"
 WG_SUDOERS_PATH="${WG_SUDOERS_PATH:-/etc/sudoers.d/rafen-wireguard}"
 WG_SYNC_HELPER_PATH="${WG_SYNC_HELPER_PATH:-$APP_DIR/scripts/wireguard-apply.sh}"
 SERVER_HEALTH_SUDOERS_PATH="${SERVER_HEALTH_SUDOERS_PATH:-/etc/sudoers.d/rafen-server-health}"
+RADIUS_SUDOERS_PATH="${RADIUS_SUDOERS_PATH:-/etc/sudoers.d/rafen-freeradius}"
+RADIUS_SYNC_HELPER_PATH="${RADIUS_SYNC_HELPER_PATH:-/usr/local/bin/rafen-sync-radius-clients}"
 PM2_SYSTEMD_SERVICE_PATH="${PM2_SYSTEMD_SERVICE_PATH:-/etc/systemd/system/pm2-deploy.service}"
 SYSTEM_PRIMARY_IP="${SYSTEM_PRIMARY_IP:-}"
 NGINX_BIN="${NGINX_BIN:-nginx}"
@@ -101,7 +111,7 @@ Options:
   --admin-email <email>     Email for initial super admin (opsional jika installer interaktif)
   --admin-phone <phone>     Nomor WhatsApp admin awal untuk sinkronisasi notifikasi SaaS
   --admin-password <value>  Password for initial super admin (opsional jika installer interaktif)
-  --db-connection <driver>  Database connection (sqlite or mysql)
+  --db-connection <driver>  Database connection (mariadb or mysql)
   --db-host <host>          Database host for non-sqlite setup
   --db-port <port>          Database port for non-sqlite setup
   --db-name <name|path>     Database name or sqlite file path
@@ -116,19 +126,23 @@ Options:
   --skip-wireguard-system   Disable OS-level WireGuard bootstrap
   --skip-wireguard-package-install
                             Skip apt-get install for WireGuard packages during bootstrap
+  --skip-genieacs-bootstrap Skip bootstrap MongoDB + GenieACS runtime
   --dry-run                 Print actions without executing commands
   --help                    Show this help
 
 Env overrides:
   APP_DIR, EXPECTED_APP_DIR, ENV_FILE, DEPLOY_USER, DEPLOY_GROUP, DEPLOY_PASSWORD,
   APP_USER, APP_GROUP, SYSTEM_TIMEZONE, PHP_PREFERRED_VERSION, NODE_PREFERRED_MAJOR,
+  MONGODB_MAJOR, GENIEACS_VERSION, GENIEACS_USER, GENIEACS_GROUP, GENIEACS_DIR,
+  GENIEACS_ENV_FILE, GENIEACS_LOG_DIR,
   PHP_BIN, COMPOSER_BIN, NPM_BIN, APT_GET_BIN, SYSTEMCTL_BIN, VISUDO_BIN,
   NGINX_BIN, NGINX_SERVICE, ALLOW_NON_ROOT, RUN_COMPOSER_INSTALL, RUN_NPM_BUILD, RUN_MIGRATE,
   RUN_SUPER_ADMIN_SETUP, RUN_SYSTEM_BOOTSTRAP, RUN_WIREGUARD_SYSTEM_BOOTSTRAP, LICENSE_PUBLIC_KEY_VALUE,
   SELF_HOSTED_REGISTRY_URL_VALUE, SELF_HOSTED_REGISTRY_TOKEN_VALUE, ADMIN_PHONE,
-  RUN_WIREGUARD_PACKAGE_INSTALL, RUN_PM2_BOOTSTRAP, DB_CONNECTION, DB_HOST, DB_PORT,
+  RUN_WIREGUARD_PACKAGE_INSTALL, RUN_PM2_BOOTSTRAP, RUN_GENIEACS_BOOTSTRAP, DB_CONNECTION, DB_HOST, DB_PORT,
   DB_DATABASE, DB_USERNAME, DB_PASSWORD, WG_SYSTEM_DIR, WG_SYSTEM_INTERFACE,
-  WG_SYSTEM_SERVICE, DEPLOY_SUDOERS_PATH, WG_SUDOERS_PATH, WG_SYNC_HELPER_PATH, SERVER_HEALTH_SUDOERS_PATH, PM2_SYSTEMD_SERVICE_PATH, APP_DOMAIN,
+  WG_SYSTEM_SERVICE, DEPLOY_SUDOERS_PATH, WG_SUDOERS_PATH, WG_SYNC_HELPER_PATH, SERVER_HEALTH_SUDOERS_PATH,
+  RADIUS_SUDOERS_PATH, RADIUS_SYNC_HELPER_PATH, PM2_SYSTEMD_SERVICE_PATH, APP_DOMAIN,
   SYSTEM_PRIMARY_IP, NGINX_SITE_AVAILABLE_PATH, NGINX_SITE_ENABLED_PATH,
   NGINX_DEFAULT_SITE_PATH, NGINX_DEFAULT_CONFD_PATH, PHP_FPM_SERVICE, PHP_FPM_SOCK.
 EOF
@@ -145,7 +159,7 @@ elevate_with_sudo() {
 
     sudo -v || fail "Autentikasi sudo gagal."
 
-    exec sudo --preserve-env=APP_DIR,EXPECTED_APP_DIR,ENV_FILE,ENV_EXAMPLE_FILE,DEPLOY_USER,DEPLOY_GROUP,DEPLOY_PASSWORD,APP_USER,APP_GROUP,SYSTEM_TIMEZONE,PHP_BIN,COMPOSER_BIN,NPM_BIN,APT_GET_BIN,SYSTEMCTL_BIN,VISUDO_BIN,ALLOW_NON_ROOT,DRY_RUN,RUN_COMPOSER_INSTALL,RUN_NPM_BUILD,RUN_MIGRATE,RUN_SUPER_ADMIN_SETUP,RUN_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_PACKAGE_INSTALL,RUN_PM2_BOOTSTRAP,APP_URL_OVERRIDE,APP_DOMAIN,LICENSE_PUBLIC_KEY_VALUE,SELF_HOSTED_REGISTRY_URL_VALUE,SELF_HOSTED_REGISTRY_TOKEN_VALUE,ADMIN_NAME,ADMIN_EMAIL,ADMIN_PHONE,ADMIN_PASSWORD,DB_CONNECTION,DB_HOST,DB_PORT,DB_DATABASE,DB_USERNAME,DB_PASSWORD,WG_SYSTEM_DIR,WG_SYSTEM_INTERFACE,WG_SYSTEM_SERVICE,DEPLOY_SUDOERS_PATH,WG_SUDOERS_PATH,WG_SYNC_HELPER_PATH,SERVER_HEALTH_SUDOERS_PATH,PM2_SYSTEMD_SERVICE_PATH,SYSTEM_PRIMARY_IP,NGINX_BIN,NGINX_SERVICE,NGINX_SITE_AVAILABLE_PATH,NGINX_SITE_ENABLED_PATH,NGINX_DEFAULT_SITE_PATH,NGINX_DEFAULT_CONFD_PATH,PHP_FPM_SERVICE,PHP_FPM_SOCK bash "$0" "$@"
+    exec sudo --preserve-env=APP_DIR,EXPECTED_APP_DIR,ENV_FILE,ENV_EXAMPLE_FILE,DEPLOY_USER,DEPLOY_GROUP,DEPLOY_PASSWORD,APP_USER,APP_GROUP,SYSTEM_TIMEZONE,PHP_PREFERRED_VERSION,NODE_PREFERRED_MAJOR,MONGODB_MAJOR,GENIEACS_VERSION,GENIEACS_USER,GENIEACS_GROUP,GENIEACS_DIR,GENIEACS_ENV_FILE,GENIEACS_LOG_DIR,PHP_BIN,COMPOSER_BIN,NPM_BIN,APT_GET_BIN,SYSTEMCTL_BIN,VISUDO_BIN,ALLOW_NON_ROOT,DRY_RUN,RUN_COMPOSER_INSTALL,RUN_NPM_BUILD,RUN_MIGRATE,RUN_SUPER_ADMIN_SETUP,RUN_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_PACKAGE_INSTALL,RUN_PM2_BOOTSTRAP,RUN_GENIEACS_BOOTSTRAP,APP_URL_OVERRIDE,APP_DOMAIN,LICENSE_PUBLIC_KEY_VALUE,SELF_HOSTED_REGISTRY_URL_VALUE,SELF_HOSTED_REGISTRY_TOKEN_VALUE,ADMIN_NAME,ADMIN_EMAIL,ADMIN_PHONE,ADMIN_PASSWORD,DB_CONNECTION,DB_HOST,DB_PORT,DB_DATABASE,DB_USERNAME,DB_PASSWORD,WG_SYSTEM_DIR,WG_SYSTEM_INTERFACE,WG_SYSTEM_SERVICE,DEPLOY_SUDOERS_PATH,WG_SUDOERS_PATH,WG_SYNC_HELPER_PATH,SERVER_HEALTH_SUDOERS_PATH,RADIUS_SUDOERS_PATH,RADIUS_SYNC_HELPER_PATH,PM2_SYSTEMD_SERVICE_PATH,SYSTEM_PRIMARY_IP,NGINX_BIN,NGINX_SERVICE,NGINX_SITE_AVAILABLE_PATH,NGINX_SITE_ENABLED_PATH,NGINX_DEFAULT_SITE_PATH,NGINX_DEFAULT_CONFD_PATH,PHP_FPM_SERVICE,PHP_FPM_SOCK bash "$0" "$@"
 }
 
 parse_args() {
@@ -256,6 +270,10 @@ parse_args() {
                 RUN_WIREGUARD_PACKAGE_INSTALL=0
                 shift
                 ;;
+            --skip-genieacs-bootstrap)
+                RUN_GENIEACS_BOOTSTRAP=0
+                shift
+                ;;
             --dry-run)
                 DRY_RUN=1
                 shift
@@ -283,6 +301,43 @@ require_root() {
 
 command_exists() {
     command -v "$1" >/dev/null 2>&1
+}
+
+random_string() {
+    openssl rand -base64 "${1:-24}" | tr -d '\n'
+}
+
+sql_escape_literal() {
+    printf "%s" "$1" | sed "s/'/''/g"
+}
+
+shell_double_quote_escape() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+local_database_host() {
+    case "$DB_HOST" in
+        ""|localhost|127.0.0.1|::1)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+database_cli_bin() {
+    if command_exists mariadb; then
+        printf 'mariadb'
+        return 0
+    fi
+
+    if command_exists mysql; then
+        printf 'mysql'
+        return 0
+    fi
+
+    return 1
 }
 
 resolve_command_path() {
@@ -314,6 +369,19 @@ resolve_php_cli_bin() {
 
 normalize_php_runtime() {
     PHP_BIN="$(resolve_php_cli_bin)"
+}
+
+prepare_database_credentials() {
+    if ! local_database_host; then
+        return
+    fi
+
+    if [ -n "$DB_PASSWORD" ] || [ "$DB_USERNAME" = "root" ]; then
+        return
+    fi
+
+    DB_PASSWORD="$(random_string 24)"
+    info "DB_PASSWORD kosong. Membuat password acak untuk user database ${DB_USERNAME}."
 }
 
 apt_package_exists() {
@@ -444,6 +512,63 @@ ensure_node_apt_repository() {
             fail "Node.js ${NODE_PREFERRED_MAJOR}.x belum tersedia dan distro ${os_id:-unknown} belum didukung untuk bootstrap repository Node otomatis."
             ;;
     esac
+}
+
+add_mongodb_apt_repository() {
+    if [ "$RUN_GENIEACS_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    local os_id
+    local version_codename
+    local ubuntu_codename
+    local codename
+    local keyring
+    local list_file
+    local repo_path
+
+    if apt_package_exists "mongodb-org"; then
+        return
+    fi
+
+    os_id="$(read_os_release_value ID || true)"
+    version_codename="$(read_os_release_value VERSION_CODENAME || true)"
+    ubuntu_codename="$(read_os_release_value UBUNTU_CODENAME || true)"
+    codename="${ubuntu_codename:-$version_codename}"
+    keyring="/usr/share/keyrings/mongodb-server-${MONGODB_MAJOR}.gpg"
+    list_file="/etc/apt/sources.list.d/mongodb-org-${MONGODB_MAJOR}.list"
+
+    [ -n "$codename" ] || fail "VERSION_CODENAME tidak ditemukan di /etc/os-release, tidak bisa menambahkan repository MongoDB."
+
+    case "$os_id" in
+        ubuntu)
+            repo_path="https://repo.mongodb.org/apt/ubuntu ${codename}/mongodb-org/${MONGODB_MAJOR} multiverse"
+            ;;
+        debian)
+            repo_path="https://repo.mongodb.org/apt/debian ${codename}/mongodb-org/${MONGODB_MAJOR} main"
+            ;;
+        *)
+            fail "Bootstrap MongoDB otomatis belum didukung untuk distro ${os_id:-unknown}."
+            ;;
+    esac
+
+    if [ -f "$list_file" ]; then
+        return
+    fi
+
+    info "Menambahkan repository MongoDB ${MONGODB_MAJOR} untuk bootstrap GenieACS."
+    run_command "$APT_GET_BIN" install -y ca-certificates curl gnupg
+    install_dir /usr/share/keyrings
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] download MongoDB key to %s\n' "$keyring"
+        printf '[DRY-RUN] write file %s\n' "$list_file"
+    else
+        curl -fsSL "https://pgp.mongodb.com/server-${MONGODB_MAJOR}.asc" | gpg --dearmor -o "$keyring"
+        printf 'deb [ arch=amd64,arm64 signed-by=%s ] %s\n' "$keyring" "$repo_path" >"$list_file"
+    fi
+
+    run_command "$APT_GET_BIN" update
 }
 
 check_node_runtime_requirements() {
@@ -1172,7 +1297,7 @@ configure_environment() {
     set_env APP_DEBUG "false"
     set_env DB_CONNECTION "$DB_CONNECTION"
     set_env SESSION_DRIVER "file"
-    set_env QUEUE_CONNECTION "sync"
+    set_env QUEUE_CONNECTION "database"
     set_env CACHE_STORE "file"
     set_env LICENSE_SELF_HOSTED_ENABLED "true"
     set_env LICENSE_ENFORCE "true"
@@ -1213,8 +1338,15 @@ configure_environment() {
     set_env WA_MULTI_SESSION_PORT "3100"
     set_env WA_MULTI_SESSION_PM2_HOME "$APP_DIR/storage/.pm2"
     set_env WA_MULTI_SESSION_LOG_FILE "$APP_DIR/storage/logs/wa-multi-session-pm2.log"
-    set_env RADIUS_CLIENTS_PATH "$APP_DIR/storage/app/radius/clients-selfhosted.conf"
+    set_env RADIUS_CLIENTS_PATH "/etc/freeradius/3.0/clients.d/laravel.conf"
     set_env RADIUS_LOG_PATH "$APP_DIR/storage/logs/freeradius.log"
+    if [ "$ALLOW_NON_ROOT" = "1" ]; then
+        set_env RADIUS_RELOAD_COMMAND "$SYSTEMCTL_BIN reload freeradius"
+        set_env RADIUS_RESTART_COMMAND "$SYSTEMCTL_BIN restart freeradius"
+    else
+        set_env RADIUS_RELOAD_COMMAND "sudo -n $SYSTEMCTL_BIN reload freeradius"
+        set_env RADIUS_RESTART_COMMAND "sudo -n $SYSTEMCTL_BIN restart freeradius"
+    fi
 
     if [ "$RUN_WIREGUARD_SYSTEM_BOOTSTRAP" = "1" ]; then
         if [ "$ALLOW_NON_ROOT" = "1" ]; then
@@ -1264,6 +1396,7 @@ install_system_packages() {
 
     ensure_php_apt_repository
     ensure_node_apt_repository
+    add_mongodb_apt_repository
 
     run_command "$APT_GET_BIN" install -y \
         nginx \
@@ -1286,6 +1419,22 @@ install_system_packages() {
         "php${PHP_PREFERRED_VERSION}-intl" \
         "php${PHP_PREFERRED_VERSION}-gd"
 
+    if local_database_host; then
+        if apt_package_exists "mariadb-server"; then
+            run_command "$APT_GET_BIN" install -y mariadb-server mariadb-client
+        elif apt_package_exists "mysql-server"; then
+            run_command "$APT_GET_BIN" install -y mysql-server mysql-client
+        fi
+    fi
+
+    if [ "$RUN_GENIEACS_BOOTSTRAP" = "1" ]; then
+        if apt_package_exists "mongodb-org"; then
+            run_command "$APT_GET_BIN" install -y mongodb-org mongodb-database-tools
+        elif apt_package_exists "mongodb"; then
+            run_command "$APT_GET_BIN" install -y mongodb
+        fi
+    fi
+
     if apt_package_exists "freeradius"; then
         run_command "$APT_GET_BIN" install -y freeradius
     fi
@@ -1297,6 +1446,204 @@ install_system_packages() {
     if ! command_exists pm2; then
         run_command "$NPM_BIN" install -g pm2
     fi
+
+    if [ "$RUN_GENIEACS_BOOTSTRAP" = "1" ] && ! command_exists genieacs-cwmp; then
+        run_command "$NPM_BIN" install -g "genieacs@${GENIEACS_VERSION}"
+    fi
+}
+
+verify_php_database_extensions() {
+    if ! [[ "$DB_CONNECTION" =~ ^(mariadb|mysql)$ ]]; then
+        return
+    fi
+
+    command_exists "$PHP_BIN" || fail "Binary PHP tidak ditemukan untuk verifikasi ekstensi database: $PHP_BIN"
+
+    run_command "$PHP_BIN" -r "foreach (['pdo_mysql', 'mysqli'] as \$ext) { if (! extension_loaded(\$ext)) { fwrite(STDERR, \"Ekstensi PHP wajib belum aktif: {\$ext}\\n\"); exit(1); } }"
+}
+
+ensure_genieacs_runtime_user() {
+    if [ "$RUN_GENIEACS_BOOTSTRAP" != "1" ] || [ "$ALLOW_NON_ROOT" = "1" ] || [ "$(id -u)" -ne 0 ]; then
+        return
+    fi
+
+    if ! group_exists "$GENIEACS_GROUP"; then
+        info "Membuat group GenieACS: $GENIEACS_GROUP"
+        run_command groupadd --system "$GENIEACS_GROUP"
+    fi
+
+    if ! user_exists "$GENIEACS_USER"; then
+        info "Membuat user GenieACS: $GENIEACS_USER"
+        run_command useradd --system --home "$GENIEACS_DIR" --shell /usr/sbin/nologin -g "$GENIEACS_GROUP" "$GENIEACS_USER"
+    fi
+}
+
+ensure_genieacs_directories() {
+    if [ "$RUN_GENIEACS_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    install_dir "$GENIEACS_DIR"
+    install_dir "$GENIEACS_DIR/ext"
+    install_dir "$GENIEACS_LOG_DIR"
+
+    if [ "$ALLOW_NON_ROOT" = "1" ] || [ "$DRY_RUN" = "1" ]; then
+        return
+    fi
+
+    run_command chown -R "$GENIEACS_USER:$GENIEACS_GROUP" "$GENIEACS_DIR" "$GENIEACS_LOG_DIR"
+    run_command chmod 0750 "$GENIEACS_DIR"
+    run_command chmod 0755 "$GENIEACS_DIR/ext"
+    run_command chmod 0750 "$GENIEACS_LOG_DIR"
+}
+
+write_genieacs_env_file() {
+    if [ "$RUN_GENIEACS_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    local jwt_secret
+    local cr_user
+    local cr_password
+    local mongo_url
+    local env_dir
+
+    env_dir="$(dirname "$GENIEACS_ENV_FILE")"
+    install_dir "$env_dir"
+    install_dir "$GENIEACS_DIR/ext"
+    install_dir "$GENIEACS_LOG_DIR"
+
+    jwt_secret="$(random_string 32)"
+    cr_user="$(read_env GENIEACS_CR_USERNAME)"
+    cr_password="$(read_env GENIEACS_CR_PASSWORD)"
+    cr_user="${cr_user:-rafen}"
+    cr_password="${cr_password:-$(random_string 24)}"
+    mongo_url="mongodb://127.0.0.1:27017/genieacs"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] write GenieACS env %s\n' "$GENIEACS_ENV_FILE"
+        return 0
+    fi
+
+    cat >"$GENIEACS_ENV_FILE" <<EOF
+GENIEACS_MONGODB_CONNECTION_URL=${mongo_url}
+GENIEACS_CWMP_PORT=7547
+GENIEACS_CWMP_INTERFACE=0.0.0.0
+GENIEACS_CWMP_ACCESS_LOG_FILE=${GENIEACS_LOG_DIR}/cwmp-access.log
+GENIEACS_NBI_PORT=7557
+GENIEACS_NBI_INTERFACE=127.0.0.1
+GENIEACS_NBI_ACCESS_LOG_FILE=${GENIEACS_LOG_DIR}/nbi-access.log
+GENIEACS_FS_PORT=7567
+GENIEACS_FS_INTERFACE=0.0.0.0
+GENIEACS_FS_ACCESS_LOG_FILE=${GENIEACS_LOG_DIR}/fs-access.log
+GENIEACS_UI_PORT=3000
+GENIEACS_UI_INTERFACE=0.0.0.0
+GENIEACS_UI_ACCESS_LOG_FILE=${GENIEACS_LOG_DIR}/ui-access.log
+GENIEACS_UI_JWT_SECRET=${jwt_secret}
+GENIEACS_EXT_DIR=${GENIEACS_DIR}/ext
+GENIEACS_CONNECTION_REQUEST_USERNAME=${cr_user}
+GENIEACS_CONNECTION_REQUEST_PASSWORD=${cr_password}
+EOF
+
+    chown "$GENIEACS_USER:$GENIEACS_GROUP" "$GENIEACS_ENV_FILE"
+    chmod 0600 "$GENIEACS_ENV_FILE"
+}
+
+write_genieacs_systemd_units() {
+    if [ "$RUN_GENIEACS_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    local cwmp_bin
+    local fs_bin
+    local nbi_bin
+    local ui_bin
+
+    cwmp_bin="$(resolve_command_path genieacs-cwmp || true)"
+    fs_bin="$(resolve_command_path genieacs-fs || true)"
+    nbi_bin="$(resolve_command_path genieacs-nbi || true)"
+    ui_bin="$(resolve_command_path genieacs-ui || true)"
+
+    [ -n "$cwmp_bin" ] || fail "Binary genieacs-cwmp tidak ditemukan. Pastikan paket npm genieacs berhasil terinstall."
+    [ -n "$fs_bin" ] || fail "Binary genieacs-fs tidak ditemukan. Pastikan paket npm genieacs berhasil terinstall."
+    [ -n "$nbi_bin" ] || fail "Binary genieacs-nbi tidak ditemukan. Pastikan paket npm genieacs berhasil terinstall."
+    [ -n "$ui_bin" ] || fail "Binary genieacs-ui tidak ditemukan. Pastikan paket npm genieacs berhasil terinstall."
+
+    cat >/etc/systemd/system/genieacs-cwmp.service <<EOF
+[Unit]
+Description=GenieACS CWMP
+After=network.target mongod.service
+Wants=mongod.service
+
+[Service]
+Type=simple
+User=${GENIEACS_USER}
+Group=${GENIEACS_GROUP}
+EnvironmentFile=${GENIEACS_ENV_FILE}
+ExecStart=${cwmp_bin}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    cat >/etc/systemd/system/genieacs-fs.service <<EOF
+[Unit]
+Description=GenieACS FS
+After=network.target mongod.service
+Wants=mongod.service
+
+[Service]
+Type=simple
+User=${GENIEACS_USER}
+Group=${GENIEACS_GROUP}
+EnvironmentFile=${GENIEACS_ENV_FILE}
+ExecStart=${fs_bin}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    cat >/etc/systemd/system/genieacs-nbi.service <<EOF
+[Unit]
+Description=GenieACS NBI
+After=network.target mongod.service
+Wants=mongod.service
+
+[Service]
+Type=simple
+User=${GENIEACS_USER}
+Group=${GENIEACS_GROUP}
+EnvironmentFile=${GENIEACS_ENV_FILE}
+ExecStart=${nbi_bin}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    cat >/etc/systemd/system/genieacs-ui.service <<EOF
+[Unit]
+Description=GenieACS UI
+After=network.target mongod.service
+Wants=mongod.service
+
+[Service]
+Type=simple
+User=${GENIEACS_USER}
+Group=${GENIEACS_GROUP}
+EnvironmentFile=${GENIEACS_ENV_FILE}
+ExecStart=${ui_bin}
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
 }
 
 write_runtime_systemd_units() {
@@ -1410,6 +1757,10 @@ ExecStop=${pm2_path} kill
 WantedBy=multi-user.target
 EOF
     fi
+
+    if [ "$RUN_GENIEACS_BOOTSTRAP" = "1" ]; then
+        write_genieacs_systemd_units
+    fi
 }
 
 bootstrap_wa_gateway_runtime() {
@@ -1488,6 +1839,13 @@ enable_runtime_services() {
     fi
 
     run_command "$SYSTEMCTL_BIN" daemon-reload
+
+    if [ "$RUN_GENIEACS_BOOTSTRAP" = "1" ]; then
+        if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'mongod.service'; then
+            run_command "$SYSTEMCTL_BIN" enable --now mongod.service
+        fi
+    fi
+
     run_command "$SYSTEMCTL_BIN" enable --now rafen-queue.service
     run_command "$SYSTEMCTL_BIN" enable --now rafen-startup-tasks.service
     run_command "$SYSTEMCTL_BIN" enable --now rafen-schedule.timer
@@ -1498,6 +1856,24 @@ enable_runtime_services() {
 
     if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'freeradius.service'; then
         run_command "$SYSTEMCTL_BIN" enable --now freeradius.service
+    fi
+
+    if [ "$RUN_GENIEACS_BOOTSTRAP" = "1" ]; then
+        if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'genieacs-cwmp.service'; then
+            run_command "$SYSTEMCTL_BIN" enable --now genieacs-cwmp.service
+        fi
+
+        if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'genieacs-fs.service'; then
+            run_command "$SYSTEMCTL_BIN" enable --now genieacs-fs.service
+        fi
+
+        if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'genieacs-nbi.service'; then
+            run_command "$SYSTEMCTL_BIN" enable --now genieacs-nbi.service
+        fi
+
+        if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'genieacs-ui.service'; then
+            run_command "$SYSTEMCTL_BIN" enable --now genieacs-ui.service
+        fi
     fi
 }
 
@@ -1636,17 +2012,372 @@ restart_web_services() {
     run_command "$SYSTEMCTL_BIN" restart "$NGINX_SERVICE"
 }
 
-prepare_sqlite_database() {
-    if [ "$DB_CONNECTION" != "sqlite" ]; then
+validate_database_runtime_choice() {
+    case "$DB_CONNECTION" in
+        mariadb|mysql)
+            return
+            ;;
+        sqlite)
+            fail "Installer self-hosted tidak lagi mendukung sqlite sebagai database utama. Gunakan mariadb/mysql agar aplikasi, queue worker, WA gateway, dan integrasi FreeRADIUS memakai satu database yang konsisten."
+            ;;
+        *)
+            fail "DB_CONNECTION=$DB_CONNECTION belum didukung untuk self-hosted. Gunakan mariadb atau mysql."
+            ;;
+    esac
+}
+
+provision_application_database() {
+    if ! local_database_host; then
+        warn "DB_HOST=$DB_HOST bukan host lokal. Installer tidak akan memprovision database remote; pastikan database, user, dan hak akses sudah disiapkan."
         return
     fi
 
-    install_dir "$(dirname "$DB_DATABASE")"
+    local db_cli
+    local db_name_sql
+    local db_user_sql
+    local db_password_sql
+    local service_name
 
-    if [ ! -f "$DB_DATABASE" ]; then
-        info "Membuat file database sqlite: $DB_DATABASE"
-        run_command touch "$DB_DATABASE"
+    db_cli="$(database_cli_bin || true)"
+    [ -n "$db_cli" ] || fail "Binary client MariaDB/MySQL tidak ditemukan. Pastikan mariadb-client atau mysql-client sudah terinstall."
+
+    service_name=""
+    if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'mariadb.service'; then
+        service_name="mariadb.service"
+    elif "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'mysql.service'; then
+        service_name="mysql.service"
     fi
+
+    if [ -n "$service_name" ]; then
+        run_command "$SYSTEMCTL_BIN" enable --now "$service_name"
+    fi
+
+    db_name_sql="$(sql_escape_literal "$DB_DATABASE")"
+    db_user_sql="$(sql_escape_literal "$DB_USERNAME")"
+    db_password_sql="$(sql_escape_literal "$DB_PASSWORD")"
+
+    run_command "$db_cli" -e "CREATE DATABASE IF NOT EXISTS \`${db_name_sql}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+    if [ "$DB_USERNAME" != "root" ]; then
+        run_command "$db_cli" -e "CREATE USER IF NOT EXISTS '${db_user_sql}'@'localhost' IDENTIFIED BY '${db_password_sql}';"
+        run_command "$db_cli" -e "CREATE USER IF NOT EXISTS '${db_user_sql}'@'127.0.0.1' IDENTIFIED BY '${db_password_sql}';"
+        run_command "$db_cli" -e "CREATE USER IF NOT EXISTS '${db_user_sql}'@'::1' IDENTIFIED BY '${db_password_sql}';"
+        run_command "$db_cli" -e "GRANT ALL PRIVILEGES ON \`${db_name_sql}\`.* TO '${db_user_sql}'@'localhost';"
+        run_command "$db_cli" -e "GRANT ALL PRIVILEGES ON \`${db_name_sql}\`.* TO '${db_user_sql}'@'127.0.0.1';"
+        run_command "$db_cli" -e "GRANT ALL PRIVILEGES ON \`${db_name_sql}\`.* TO '${db_user_sql}'@'::1';"
+        run_command "$db_cli" -e "FLUSH PRIVILEGES;"
+    fi
+}
+
+verify_database_access() {
+    local db_cli
+
+    db_cli="$(database_cli_bin || true)"
+    [ -n "$db_cli" ] || fail "Binary client MariaDB/MySQL tidak ditemukan untuk verifikasi database."
+
+    if [ "$DB_USERNAME" = "root" ]; then
+        if ! run_command "$db_cli" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -e "USE \`${DB_DATABASE}\`; SELECT 1;" >/dev/null 2>&1; then
+            fail "Akses database gagal untuk ${DB_USERNAME}@${DB_HOST}:${DB_PORT}. Pastikan kredensial MariaDB/MySQL valid."
+        fi
+
+        return
+    fi
+
+    if ! MYSQL_PWD="$DB_PASSWORD" run_command "$db_cli" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -e "USE \`${DB_DATABASE}\`; SELECT 1;" >/dev/null 2>&1; then
+        fail "Akses database gagal untuk ${DB_USERNAME}@${DB_HOST}:${DB_PORT}. Pastikan database, user, dan password sudah benar."
+    fi
+}
+
+find_freeradius_schema_sql() {
+    local candidate
+
+    for candidate in \
+        "/etc/freeradius/3.0/mods-config/sql/main/mysql/schema.sql" \
+        "/usr/share/freeradius/sql/mysql/schema.sql" \
+        "/usr/share/doc/freeradius/examples/sql/mysql/schema.sql.gz"
+    do
+        if [ -f "$candidate" ]; then
+            printf '%s' "$candidate"
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+radius_schema_existing_tables() {
+    local db_cli
+    local escaped_db_name
+
+    db_cli="$(database_cli_bin || true)"
+    [ -n "$db_cli" ] || fail "Binary client MariaDB/MySQL tidak ditemukan untuk audit schema FreeRADIUS."
+
+    escaped_db_name="$(sql_escape_literal "$DB_DATABASE")"
+
+    if [ "$DB_USERNAME" = "root" ]; then
+        "$db_cli" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -N -B -e \
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='${escaped_db_name}' AND table_name IN ('radcheck','radreply','radgroupcheck','radgroupreply','radacct','radpostauth','radusergroup','radippool','nas');"
+        return
+    fi
+
+    MYSQL_PWD="$DB_PASSWORD" "$db_cli" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -N -B -e \
+        "SELECT table_name FROM information_schema.tables WHERE table_schema='${escaped_db_name}' AND table_name IN ('radcheck','radreply','radgroupcheck','radgroupreply','radacct','radpostauth','radusergroup','radippool','nas');"
+}
+
+import_radius_schema_sql_file() {
+    local schema_file="$1"
+    local db_cli
+
+    db_cli="$(database_cli_bin || true)"
+    [ -n "$db_cli" ] || fail "Binary client MariaDB/MySQL tidak ditemukan untuk import schema FreeRADIUS."
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] import FreeRADIUS schema from %s into %s\n' "$schema_file" "$DB_DATABASE"
+        return 0
+    fi
+
+    if [[ "$schema_file" = *.gz ]]; then
+        if [ "$DB_USERNAME" = "root" ]; then
+            gunzip -c "$schema_file" | "$db_cli" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" "$DB_DATABASE"
+            return
+        fi
+
+        gunzip -c "$schema_file" | MYSQL_PWD="$DB_PASSWORD" "$db_cli" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" "$DB_DATABASE"
+        return
+    fi
+
+    if [ "$DB_USERNAME" = "root" ]; then
+        "$db_cli" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" "$DB_DATABASE" <"$schema_file"
+        return
+    fi
+
+    MYSQL_PWD="$DB_PASSWORD" "$db_cli" -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" "$DB_DATABASE" <"$schema_file"
+}
+
+create_radius_schema_if_missing() {
+    if ! [[ "$DB_CONNECTION" =~ ^(mariadb|mysql)$ ]]; then
+        return
+    fi
+
+    local existing_tables
+    local missing_tables=()
+    local schema_file
+    local sql_file
+    local required_tables=(
+        radcheck
+        radreply
+        radgroupcheck
+        radgroupreply
+        radacct
+        radpostauth
+        radusergroup
+        radippool
+        nas
+    )
+    local table_name
+
+    existing_tables="$(radius_schema_existing_tables || true)"
+
+    for table_name in "${required_tables[@]}"; do
+        if ! printf '%s\n' "$existing_tables" | grep -Fxq "$table_name"; then
+            missing_tables+=("$table_name")
+        fi
+    done
+
+    if [ "${#missing_tables[@]}" -eq 0 ]; then
+        info "Schema FreeRADIUS sudah tersedia di database ${DB_DATABASE}."
+        return
+    fi
+
+    info "Menyiapkan schema FreeRADIUS di database ${DB_DATABASE}. Tabel yang belum ada: ${missing_tables[*]}"
+
+    schema_file="$(find_freeradius_schema_sql || true)"
+
+    if [ -n "$schema_file" ]; then
+        info "Mengimpor schema FreeRADIUS bawaan paket dari ${schema_file}."
+        import_radius_schema_sql_file "$schema_file"
+        existing_tables="$(radius_schema_existing_tables || true)"
+        missing_tables=()
+
+        for table_name in "${required_tables[@]}"; do
+            if ! printf '%s\n' "$existing_tables" | grep -Fxq "$table_name"; then
+                missing_tables+=("$table_name")
+            fi
+        done
+
+        if [ "${#missing_tables[@]}" -eq 0 ]; then
+            info "Schema FreeRADIUS berhasil diimpor dari paket sistem."
+            return
+        fi
+    else
+        warn "File schema FreeRADIUS bawaan paket tidak ditemukan. Menggunakan fallback schema minimal untuk Rafen."
+    fi
+
+    sql_file="$(mktemp)"
+
+    cat >"$sql_file" <<'EOF'
+CREATE TABLE IF NOT EXISTS `radcheck` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `username` varchar(64) NOT NULL DEFAULT '',
+  `attribute` varchar(64) NOT NULL DEFAULT '',
+  `op` char(2) NOT NULL DEFAULT '==',
+  `value` varchar(253) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  KEY `username` (`username`(32))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `radreply` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `username` varchar(64) NOT NULL DEFAULT '',
+  `attribute` varchar(64) NOT NULL DEFAULT '',
+  `op` char(2) NOT NULL DEFAULT '=',
+  `value` varchar(253) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  KEY `username` (`username`(32))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `radgroupcheck` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `groupname` varchar(64) NOT NULL DEFAULT '',
+  `attribute` varchar(64) NOT NULL DEFAULT '',
+  `op` char(2) NOT NULL DEFAULT '==',
+  `value` varchar(253) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  KEY `groupname` (`groupname`(32))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `radgroupreply` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `groupname` varchar(64) NOT NULL DEFAULT '',
+  `attribute` varchar(64) NOT NULL DEFAULT '',
+  `op` char(2) NOT NULL DEFAULT '=',
+  `value` varchar(253) NOT NULL DEFAULT '',
+  PRIMARY KEY (`id`),
+  KEY `groupname` (`groupname`(32))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `radacct` (
+  `radacctid` bigint(21) NOT NULL AUTO_INCREMENT,
+  `acctsessionid` varchar(64) NOT NULL DEFAULT '',
+  `acctuniqueid` varchar(32) NOT NULL DEFAULT '',
+  `username` varchar(64) NOT NULL DEFAULT '',
+  `realm` varchar(64) DEFAULT '',
+  `nasipaddress` varchar(15) NOT NULL DEFAULT '',
+  `nasportid` varchar(32) DEFAULT NULL,
+  `nasporttype` varchar(32) DEFAULT NULL,
+  `acctstarttime` datetime DEFAULT NULL,
+  `acctupdatetime` datetime DEFAULT NULL,
+  `acctstoptime` datetime DEFAULT NULL,
+  `acctinterval` int(12) DEFAULT NULL,
+  `acctsessiontime` int(12) unsigned DEFAULT NULL,
+  `acctauthentic` varchar(32) DEFAULT NULL,
+  `connectinfo_start` varchar(128) DEFAULT NULL,
+  `connectinfo_stop` varchar(128) DEFAULT NULL,
+  `acctinputoctets` bigint(20) DEFAULT NULL,
+  `acctoutputoctets` bigint(20) DEFAULT NULL,
+  `calledstationid` varchar(50) NOT NULL DEFAULT '',
+  `callingstationid` varchar(50) NOT NULL DEFAULT '',
+  `acctterminatecause` varchar(32) NOT NULL DEFAULT '',
+  `servicetype` varchar(32) DEFAULT NULL,
+  `framedprotocol` varchar(32) DEFAULT NULL,
+  `framedipaddress` varchar(15) NOT NULL DEFAULT '',
+  `framedipv6address` varchar(45) NOT NULL DEFAULT '',
+  `framedipv6prefix` varchar(45) NOT NULL DEFAULT '',
+  `framedinterfaceid` varchar(44) NOT NULL DEFAULT '',
+  `delegatedipv6prefix` varchar(45) NOT NULL DEFAULT '',
+  `class` varchar(64) DEFAULT NULL,
+  PRIMARY KEY (`radacctid`),
+  UNIQUE KEY `acctuniqueid` (`acctuniqueid`),
+  KEY `username` (`username`),
+  KEY `framedipaddress` (`framedipaddress`),
+  KEY `framedipv6address` (`framedipv6address`),
+  KEY `framedipv6prefix` (`framedipv6prefix`),
+  KEY `framedinterfaceid` (`framedinterfaceid`),
+  KEY `delegatedipv6prefix` (`delegatedipv6prefix`),
+  KEY `acctsessionid` (`acctsessionid`),
+  KEY `acctsessiontime` (`acctsessiontime`),
+  KEY `acctstarttime` (`acctstarttime`),
+  KEY `acctinterval` (`acctinterval`),
+  KEY `acctstoptime` (`acctstoptime`),
+  KEY `nasipaddress` (`nasipaddress`),
+  KEY `class` (`class`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `radpostauth` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `username` varchar(64) NOT NULL DEFAULT '',
+  `pass` varchar(64) NOT NULL DEFAULT '',
+  `reply` varchar(32) NOT NULL DEFAULT '',
+  `authdate` timestamp(6) NOT NULL DEFAULT current_timestamp(6) ON UPDATE current_timestamp(6),
+  `class` varchar(64) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `username` (`username`),
+  KEY `class` (`class`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `radusergroup` (
+  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `username` varchar(64) NOT NULL DEFAULT '',
+  `groupname` varchar(64) NOT NULL DEFAULT '',
+  `priority` int(11) NOT NULL DEFAULT 1,
+  PRIMARY KEY (`id`),
+  KEY `username` (`username`(32))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `radippool` (
+  `id` bigint(21) NOT NULL AUTO_INCREMENT,
+  `pool_name` varchar(64) NOT NULL,
+  `framedipaddress` varchar(15) NOT NULL DEFAULT '',
+  `nasipaddress` varchar(15) NOT NULL DEFAULT '',
+  `calledstationid` varchar(64) NOT NULL,
+  `callingstationid` varchar(64) NOT NULL,
+  `expiry_time` datetime DEFAULT NULL,
+  `username` varchar(64) NOT NULL DEFAULT '',
+  `pool_key` varchar(30) NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `radippool_poolname_expire` (`pool_name`,`expiry_time`),
+  KEY `radippool_framedipaddress` (`framedipaddress`),
+  KEY `radippool_nasipaddress_poolkey` (`nasipaddress`,`pool_key`),
+  KEY `radippool_poolname_framedipaddress` (`pool_name`,`framedipaddress`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `nas` (
+  `id` int(10) NOT NULL AUTO_INCREMENT,
+  `nasname` varchar(128) NOT NULL,
+  `shortname` varchar(32) DEFAULT NULL,
+  `type` varchar(30) DEFAULT 'other',
+  `ports` int(5) DEFAULT NULL,
+  `secret` varchar(60) NOT NULL DEFAULT 'secret',
+  `server` varchar(64) DEFAULT NULL,
+  `community` varchar(50) DEFAULT NULL,
+  `description` varchar(200) DEFAULT 'RADIUS Client',
+  PRIMARY KEY (`id`),
+  KEY `nasname` (`nasname`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+EOF
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] bootstrap fallback FreeRADIUS schema into %s\n' "$DB_DATABASE"
+    else
+        import_radius_schema_sql_file "$sql_file"
+    fi
+
+    rm -f "$sql_file"
+
+    existing_tables="$(radius_schema_existing_tables || true)"
+    missing_tables=()
+
+    for table_name in "${required_tables[@]}"; do
+        if ! printf '%s\n' "$existing_tables" | grep -Fxq "$table_name"; then
+            missing_tables+=("$table_name")
+        fi
+    done
+
+    if [ "${#missing_tables[@]}" -gt 0 ]; then
+        fail "Schema FreeRADIUS belum lengkap setelah bootstrap otomatis. Tabel yang masih hilang: ${missing_tables[*]}"
+    fi
+
+    info "Schema FreeRADIUS siap dipakai di database ${DB_DATABASE}."
 }
 
 apply_basic_permissions() {
@@ -1818,7 +2549,7 @@ write_server_health_sudoers() {
     systemctl_path="$(resolve_command_path "$SYSTEMCTL_BIN" || true)"
     [ -n "$systemctl_path" ] || fail "Binary systemctl tidak ditemukan untuk sudoers Server Health: $SYSTEMCTL_BIN"
 
-    sudoers_content="$APP_USER ALL=(root) NOPASSWD: ${systemctl_path} daemon-reload, ${systemctl_path} restart rafen-queue, ${systemctl_path} enable --now rafen-queue, ${systemctl_path} restart rafen-schedule.timer, ${systemctl_path} enable --now rafen-schedule.timer, ${systemctl_path} restart freeradius, ${systemctl_path} enable --now freeradius, ${systemctl_path} restart genieacs-cwmp, ${systemctl_path} enable --now genieacs-cwmp, ${systemctl_path} restart genieacs-nbi, ${systemctl_path} enable --now genieacs-nbi, /bin/sync, /usr/bin/tee /proc/sys/vm/drop_caches"
+    sudoers_content="$APP_USER ALL=(root) NOPASSWD: ${systemctl_path} daemon-reload, ${systemctl_path} restart rafen-queue, ${systemctl_path} enable --now rafen-queue, ${systemctl_path} restart rafen-schedule.timer, ${systemctl_path} enable --now rafen-schedule.timer, ${systemctl_path} reload freeradius, ${systemctl_path} restart freeradius, ${systemctl_path} enable --now freeradius, ${systemctl_path} restart genieacs-cwmp, ${systemctl_path} enable --now genieacs-cwmp, ${systemctl_path} restart genieacs-nbi, ${systemctl_path} enable --now genieacs-nbi, /bin/sync, /usr/bin/tee /proc/sys/vm/drop_caches"
 
     if [ "$DRY_RUN" = "1" ]; then
         printf '[DRY-RUN] write sudoers %s => %s\n' "$SERVER_HEALTH_SUDOERS_PATH" "$sudoers_content"
@@ -1847,6 +2578,221 @@ bootstrap_wireguard_system_service() {
 
 bootstrap_server_health_sudoers() {
     write_server_health_sudoers
+}
+
+write_radius_sync_helper() {
+    if [ "$ALLOW_NON_ROOT" = "1" ] || [ "$(id -u)" -ne 0 ]; then
+        return
+    fi
+
+    local helper_dir
+    local php_cli_path
+    local systemctl_path
+
+    helper_dir="$(dirname "$RADIUS_SYNC_HELPER_PATH")"
+    php_cli_path="$(resolve_command_path "$PHP_BIN" || true)"
+    systemctl_path="$(resolve_command_path "$SYSTEMCTL_BIN" || true)"
+
+    [ -n "$php_cli_path" ] || fail "Binary PHP tidak ditemukan untuk helper FreeRADIUS: $PHP_BIN"
+    [ -n "$systemctl_path" ] || fail "Binary systemctl tidak ditemukan untuk helper FreeRADIUS: $SYSTEMCTL_BIN"
+
+    install_dir "$helper_dir"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] write helper %s\n' "$RADIUS_SYNC_HELPER_PATH"
+        return 0
+    fi
+
+    cat >"$RADIUS_SYNC_HELPER_PATH" <<EOF
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+APP_DIR="${APP_DIR}"
+PHP_BIN="${php_cli_path}"
+SYSTEMCTL_BIN="${systemctl_path}"
+
+case "\${1:-}" in
+    --reload-only)
+        exec "\${SYSTEMCTL_BIN}" reload freeradius
+        ;;
+    --restart-only)
+        exec "\${SYSTEMCTL_BIN}" restart freeradius
+        ;;
+esac
+
+exec env \
+    RADIUS_RELOAD_COMMAND="\${SYSTEMCTL_BIN} reload freeradius" \
+    RADIUS_RESTART_COMMAND="\${SYSTEMCTL_BIN} restart freeradius" \
+    "\${PHP_BIN}" "\${APP_DIR}/artisan" radius:sync-clients "\$@"
+EOF
+
+    chmod 0755 "$RADIUS_SYNC_HELPER_PATH"
+}
+
+write_radius_sudoers() {
+    if [ "$ALLOW_NON_ROOT" = "1" ] || [ "$(id -u)" -ne 0 ]; then
+        return
+    fi
+
+    local systemctl_path
+    local cp_path
+    local sudoers_lines
+
+    systemctl_path="$(resolve_command_path "$SYSTEMCTL_BIN" || true)"
+    cp_path="$(resolve_command_path cp || true)"
+    [ -n "$systemctl_path" ] || fail "Binary systemctl tidak ditemukan untuk sudoers FreeRADIUS: $SYSTEMCTL_BIN"
+    [ -n "$cp_path" ] || fail "Binary cp tidak ditemukan untuk sudoers FreeRADIUS"
+
+    sudoers_lines="Defaults:${APP_USER} !requiretty
+${APP_USER} ALL=(root) NOPASSWD: ${systemctl_path} reload freeradius, ${systemctl_path} restart freeradius, ${RADIUS_SYNC_HELPER_PATH}, ${cp_path} ${APP_DIR}/freeradius-config/dictionary /etc/freeradius/3.0/dictionary"
+
+    if user_exists "$DEPLOY_USER" && [ "$DEPLOY_USER" != "$APP_USER" ]; then
+        sudoers_lines="${sudoers_lines}
+Defaults:${DEPLOY_USER} !requiretty
+${DEPLOY_USER} ALL=(root) NOPASSWD: ${systemctl_path} reload freeradius, ${systemctl_path} restart freeradius, ${RADIUS_SYNC_HELPER_PATH}, ${cp_path} ${APP_DIR}/freeradius-config/dictionary /etc/freeradius/3.0/dictionary"
+    fi
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] write sudoers %s => %s\n' "$RADIUS_SUDOERS_PATH" "$sudoers_lines"
+        return 0
+    fi
+
+    printf '%s\n' "$sudoers_lines" >"$RADIUS_SUDOERS_PATH"
+    chmod 0440 "$RADIUS_SUDOERS_PATH"
+
+    if command_exists "$VISUDO_BIN"; then
+        run_command "$VISUDO_BIN" -cf "$RADIUS_SUDOERS_PATH"
+    fi
+}
+
+bootstrap_radius_runtime_access() {
+    write_radius_sync_helper
+    write_radius_sudoers
+}
+
+render_freeradius_sql_module() {
+    local target_path="$1"
+    local radius_db_host
+    local radius_db_port
+    local radius_db_name
+    local radius_db_user
+    local radius_db_password
+
+    radius_db_host="$(shell_double_quote_escape "${DB_HOST:-127.0.0.1}")"
+    radius_db_port="${DB_PORT:-3306}"
+    radius_db_name="$(shell_double_quote_escape "$DB_DATABASE")"
+    radius_db_user="$(shell_double_quote_escape "$DB_USERNAME")"
+    radius_db_password="$(shell_double_quote_escape "$DB_PASSWORD")"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] render FreeRADIUS SQL module at %s\n' "$target_path"
+        return 0
+    fi
+
+    cat >"$target_path" <<EOF
+sql {
+    dialect = "mysql"
+    driver = "rlm_sql_\${dialect}"
+
+    mysql {
+        warnings = auto
+    }
+
+    server = "${radius_db_host}"
+    port = ${radius_db_port}
+    login = "${radius_db_user}"
+    password = "${radius_db_password}"
+    radius_db = "${radius_db_name}"
+
+    acct_table1 = "radacct"
+    acct_table2 = "radacct"
+    postauth_table = "radpostauth"
+    authcheck_table = "radcheck"
+    groupcheck_table = "radgroupcheck"
+    authreply_table = "radreply"
+    groupreply_table = "radgroupreply"
+    usergroup_table = "radusergroup"
+    read_groups = no
+
+    # Use Stripped-User-Name if set (e.g. after prefix stripping),
+    # otherwise fall back to User-Name.
+    sql_user_name = "%{%{Stripped-User-Name}:-%{%{User-Name}:-DEFAULT}}"
+
+    pool {
+        start = \${thread[pool].start_servers}
+        min = \${thread[pool].min_spare_servers}
+        max = \${thread[pool].max_servers}
+        spare = \${thread[pool].max_spare_servers}
+        uses = 0
+        retry_delay = 30
+        lifetime = 0
+        idle_timeout = 60
+    }
+
+    read_clients = no
+    client_table = "nas"
+    group_attribute = "SQL-Group"
+    \$INCLUDE \${modconfdir}/\${.:name}/main/\${dialect}/queries.conf
+}
+EOF
+}
+
+restore_freeradius_configuration() {
+    if [ "$RUN_SYSTEM_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    local source_dir
+    local fr_dir
+
+    source_dir="$APP_DIR/freeradius-config"
+    fr_dir="/etc/freeradius/3.0"
+
+    if [ ! -d "$source_dir" ]; then
+        warn "Direktori freeradius-config tidak ditemukan di $APP_DIR, skip restore konfigurasi FreeRADIUS."
+        return
+    fi
+
+    if [ ! -d "$fr_dir" ]; then
+        warn "Direktori $fr_dir belum tersedia. Pastikan paket freeradius sudah terpasang sebelum restore konfigurasi."
+        return
+    fi
+
+    install_dir "$fr_dir/clients.d"
+
+    run_command cp -f "$source_dir/radiusd.conf" "$fr_dir/radiusd.conf"
+    run_command cp -f "$source_dir/clients.conf" "$fr_dir/clients.conf"
+    run_command cp -f "$source_dir/dictionary" "$fr_dir/dictionary"
+    run_command cp -f "$source_dir/mods-available/sql" "$fr_dir/mods-available/sql"
+    render_freeradius_sql_module "$fr_dir/mods-available/sql"
+    run_command cp -f "$source_dir/sites-available/default" "$fr_dir/sites-available/default"
+    run_command cp -f "$source_dir/policy.d/filter" "$fr_dir/policy.d/filter"
+    run_command cp -f "$source_dir/policy.d/strip_pppoe_prefix" "$fr_dir/policy.d/strip_pppoe_prefix"
+
+    if [ -f "$source_dir/clients.d/laravel.conf" ]; then
+        run_command cp -f "$source_dir/clients.d/laravel.conf" "$fr_dir/clients.d/laravel.conf"
+    else
+        run_command touch "$fr_dir/clients.d/laravel.conf"
+    fi
+
+    run_command ln -sf "$fr_dir/mods-available/sql" "$fr_dir/mods-enabled/sql"
+
+    if getent group freerad >/dev/null 2>&1; then
+        run_command usermod -a -G freerad "$APP_USER" || true
+        run_command chown -R freerad:freerad "$fr_dir"
+        run_command chmod 0755 "$fr_dir"
+        run_command chmod 0770 "$fr_dir/clients.d"
+        run_command chown "$APP_USER":freerad "$fr_dir/clients.d/laravel.conf"
+        run_command chmod 0664 "$fr_dir/clients.d/laravel.conf"
+        if command_exists setfacl; then
+            run_command setfacl -m "u:${APP_USER}:rwx" "$fr_dir/clients.d" || true
+            run_command setfacl -m "u:${APP_USER}:rw" "$fr_dir/clients.d/laravel.conf" || true
+        fi
+    fi
+
+    if command_exists freeradius; then
+        run_command freeradius -C
+    fi
 }
 
 composer_install() {
@@ -2020,6 +2966,8 @@ show_status() {
     printf 'WG Helper Path       : %s\n' "$WG_SYNC_HELPER_PATH"
     printf 'WG System Service    : %s\n' "$WG_SYSTEM_SERVICE"
     printf 'Server Health Sudoers: %s\n' "$SERVER_HEALTH_SUDOERS_PATH"
+    printf 'Radius Sudoers       : %s\n' "$RADIUS_SUDOERS_PATH"
+    printf 'Radius Helper Path   : %s\n' "$RADIUS_SYNC_HELPER_PATH"
 }
 
 run_install_or_deploy() {
@@ -2033,11 +2981,19 @@ run_install_or_deploy() {
     ensure_runtime_directories
     copy_env_file_if_missing
     prompt_install_configuration_if_needed
+    prepare_database_credentials
     configure_environment
-    prepare_sqlite_database
+    validate_database_runtime_choice
     prepare_app_for_deploy_user
     configure_timezone
     install_system_packages
+    verify_php_database_extensions
+    provision_application_database
+    verify_database_access
+    create_radius_schema_if_missing
+    ensure_genieacs_runtime_user
+    ensure_genieacs_directories
+    write_genieacs_env_file
     check_composer_platform_requirements
     composer_install
     npm_build
@@ -2046,6 +3002,8 @@ run_install_or_deploy() {
     write_runtime_systemd_units
     bootstrap_wireguard_system_service
     bootstrap_server_health_sudoers
+    bootstrap_radius_runtime_access
+    restore_freeradius_configuration
     run_artisan_runtime_setup
     bootstrap_wa_gateway_runtime
     apply_basic_permissions
