@@ -1,0 +1,37 @@
+{
+  "name": "wa-multi-session",
+  "version": "4.2.3",
+  "description": "Multi Session Whatsapp Library",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "start": "tsc && node ./dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "mimamch",
+  "license": "ISC",
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "baileys": "^7.0.0-rc.9",
+    "link-preview-js": "^3.0.14",
+    "mime": "^3.0.0",
+    "mysql2": "^3.20.0",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^6.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/mimamch/wa-multi-session.git"
+  },
+  "devDependencies": {
+    "@types/mime": "^3.0.1",
+    "@types/qrcode": "^1.5.6",
+    "typescript": "^5.7.2"
+  }
+}

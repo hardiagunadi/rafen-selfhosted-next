@@ -1,0 +1,6 @@
+node_modules/
+.npmrc
+dist/
+wa_credentials/
+test/
+src/test/
