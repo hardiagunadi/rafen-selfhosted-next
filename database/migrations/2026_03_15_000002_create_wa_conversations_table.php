@@ -16,6 +16,7 @@ return new class extends Migration
             $table->string('contact_name', 150)->nullable();
             $table->foreignId('assigned_to_id')->nullable()->constrained('users')->nullOnDelete();
             $table->enum('status', ['open', 'pending', 'resolved'])->default('open')->index();
+            $table->timestamp('bot_paused_until')->nullable();
             $table->text('last_message')->nullable();
             $table->timestamp('last_message_at')->nullable()->index();
             $table->unsignedInteger('unread_count')->default(0);

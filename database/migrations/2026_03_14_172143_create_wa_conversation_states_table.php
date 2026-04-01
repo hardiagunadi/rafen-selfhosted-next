@@ -11,9 +11,13 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (Schema::hasTable('wa_conversation_states')) {
+            return;
+        }
+
         Schema::create('wa_conversation_states', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('conversation_id')->unique()->constrained('wa_conversations')->cascadeOnDelete();
+            $table->unsignedBigInteger('conversation_id')->unique();
             $table->foreignId('owner_id')->constrained('users')->cascadeOnDelete();
             $table->string('flow', 60);
             $table->unsignedTinyInteger('step')->default(1);
@@ -21,6 +25,10 @@ return new class extends Migration
             $table->timestamp('expires_at');
             $table->timestamps();
             $table->index(['owner_id', 'expires_at']);
+
+            if (Schema::hasTable('wa_conversations')) {
+                $table->foreign('conversation_id')->references('id')->on('wa_conversations')->cascadeOnDelete();
+            }
         });
     }
 
