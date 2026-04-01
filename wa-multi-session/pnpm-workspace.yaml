@@ -1,7 +1,0 @@
-ignoredBuiltDependencies:
-  - baileys
-  - protobufjs
-  - sharp
-
-onlyBuiltDependencies:
-  - sqlite3

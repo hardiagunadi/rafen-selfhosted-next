@@ -32,6 +32,7 @@ RUN_MIGRATE="${RUN_MIGRATE:-1}"
 RUN_SUPER_ADMIN_SETUP="${RUN_SUPER_ADMIN_SETUP:-1}"
 RUN_WIREGUARD_SYSTEM_BOOTSTRAP="${RUN_WIREGUARD_SYSTEM_BOOTSTRAP:-1}"
 RUN_WIREGUARD_PACKAGE_INSTALL="${RUN_WIREGUARD_PACKAGE_INSTALL:-1}"
+RUN_PM2_BOOTSTRAP="${RUN_PM2_BOOTSTRAP:-1}"
 APP_URL_OVERRIDE="${APP_URL_OVERRIDE:-}"
 APP_DOMAIN="${APP_DOMAIN:-}"
 LICENSE_PUBLIC_KEY_VALUE="${LICENSE_PUBLIC_KEY_VALUE:-}"
@@ -55,6 +56,7 @@ DEPLOY_SUDOERS_PATH="${DEPLOY_SUDOERS_PATH:-/etc/sudoers.d/rafen-deploy}"
 WG_SUDOERS_PATH="${WG_SUDOERS_PATH:-/etc/sudoers.d/rafen-wireguard}"
 WG_SYNC_HELPER_PATH="${WG_SYNC_HELPER_PATH:-$APP_DIR/scripts/wireguard-apply.sh}"
 SERVER_HEALTH_SUDOERS_PATH="${SERVER_HEALTH_SUDOERS_PATH:-/etc/sudoers.d/rafen-server-health}"
+PM2_SYSTEMD_SERVICE_PATH="${PM2_SYSTEMD_SERVICE_PATH:-/etc/systemd/system/pm2-deploy.service}"
 SYSTEM_PRIMARY_IP="${SYSTEM_PRIMARY_IP:-}"
 NGINX_BIN="${NGINX_BIN:-nginx}"
 NGINX_SERVICE="${NGINX_SERVICE:-nginx}"
@@ -124,9 +126,9 @@ Env overrides:
   NGINX_BIN, NGINX_SERVICE, ALLOW_NON_ROOT, RUN_COMPOSER_INSTALL, RUN_NPM_BUILD, RUN_MIGRATE,
   RUN_SUPER_ADMIN_SETUP, RUN_SYSTEM_BOOTSTRAP, RUN_WIREGUARD_SYSTEM_BOOTSTRAP, LICENSE_PUBLIC_KEY_VALUE,
   SELF_HOSTED_REGISTRY_URL_VALUE, SELF_HOSTED_REGISTRY_TOKEN_VALUE, ADMIN_PHONE,
-  RUN_WIREGUARD_PACKAGE_INSTALL, DB_CONNECTION, DB_HOST, DB_PORT,
+  RUN_WIREGUARD_PACKAGE_INSTALL, RUN_PM2_BOOTSTRAP, DB_CONNECTION, DB_HOST, DB_PORT,
   DB_DATABASE, DB_USERNAME, DB_PASSWORD, WG_SYSTEM_DIR, WG_SYSTEM_INTERFACE,
-  WG_SYSTEM_SERVICE, DEPLOY_SUDOERS_PATH, WG_SUDOERS_PATH, WG_SYNC_HELPER_PATH, SERVER_HEALTH_SUDOERS_PATH, APP_DOMAIN,
+  WG_SYSTEM_SERVICE, DEPLOY_SUDOERS_PATH, WG_SUDOERS_PATH, WG_SYNC_HELPER_PATH, SERVER_HEALTH_SUDOERS_PATH, PM2_SYSTEMD_SERVICE_PATH, APP_DOMAIN,
   SYSTEM_PRIMARY_IP, NGINX_SITE_AVAILABLE_PATH, NGINX_SITE_ENABLED_PATH,
   NGINX_DEFAULT_SITE_PATH, NGINX_DEFAULT_CONFD_PATH, PHP_FPM_SERVICE, PHP_FPM_SOCK.
 EOF
@@ -143,7 +145,7 @@ elevate_with_sudo() {
 
     sudo -v || fail "Autentikasi sudo gagal."
 
-    exec sudo --preserve-env=APP_DIR,EXPECTED_APP_DIR,ENV_FILE,ENV_EXAMPLE_FILE,DEPLOY_USER,DEPLOY_GROUP,DEPLOY_PASSWORD,APP_USER,APP_GROUP,SYSTEM_TIMEZONE,PHP_BIN,COMPOSER_BIN,NPM_BIN,APT_GET_BIN,SYSTEMCTL_BIN,VISUDO_BIN,ALLOW_NON_ROOT,DRY_RUN,RUN_COMPOSER_INSTALL,RUN_NPM_BUILD,RUN_MIGRATE,RUN_SUPER_ADMIN_SETUP,RUN_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_PACKAGE_INSTALL,APP_URL_OVERRIDE,APP_DOMAIN,LICENSE_PUBLIC_KEY_VALUE,SELF_HOSTED_REGISTRY_URL_VALUE,SELF_HOSTED_REGISTRY_TOKEN_VALUE,ADMIN_NAME,ADMIN_EMAIL,ADMIN_PHONE,ADMIN_PASSWORD,DB_CONNECTION,DB_HOST,DB_PORT,DB_DATABASE,DB_USERNAME,DB_PASSWORD,WG_SYSTEM_DIR,WG_SYSTEM_INTERFACE,WG_SYSTEM_SERVICE,DEPLOY_SUDOERS_PATH,WG_SUDOERS_PATH,WG_SYNC_HELPER_PATH,SERVER_HEALTH_SUDOERS_PATH,SYSTEM_PRIMARY_IP,NGINX_BIN,NGINX_SERVICE,NGINX_SITE_AVAILABLE_PATH,NGINX_SITE_ENABLED_PATH,NGINX_DEFAULT_SITE_PATH,NGINX_DEFAULT_CONFD_PATH,PHP_FPM_SERVICE,PHP_FPM_SOCK bash "$0" "$@"
+    exec sudo --preserve-env=APP_DIR,EXPECTED_APP_DIR,ENV_FILE,ENV_EXAMPLE_FILE,DEPLOY_USER,DEPLOY_GROUP,DEPLOY_PASSWORD,APP_USER,APP_GROUP,SYSTEM_TIMEZONE,PHP_BIN,COMPOSER_BIN,NPM_BIN,APT_GET_BIN,SYSTEMCTL_BIN,VISUDO_BIN,ALLOW_NON_ROOT,DRY_RUN,RUN_COMPOSER_INSTALL,RUN_NPM_BUILD,RUN_MIGRATE,RUN_SUPER_ADMIN_SETUP,RUN_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_SYSTEM_BOOTSTRAP,RUN_WIREGUARD_PACKAGE_INSTALL,RUN_PM2_BOOTSTRAP,APP_URL_OVERRIDE,APP_DOMAIN,LICENSE_PUBLIC_KEY_VALUE,SELF_HOSTED_REGISTRY_URL_VALUE,SELF_HOSTED_REGISTRY_TOKEN_VALUE,ADMIN_NAME,ADMIN_EMAIL,ADMIN_PHONE,ADMIN_PASSWORD,DB_CONNECTION,DB_HOST,DB_PORT,DB_DATABASE,DB_USERNAME,DB_PASSWORD,WG_SYSTEM_DIR,WG_SYSTEM_INTERFACE,WG_SYSTEM_SERVICE,DEPLOY_SUDOERS_PATH,WG_SUDOERS_PATH,WG_SYNC_HELPER_PATH,SERVER_HEALTH_SUDOERS_PATH,PM2_SYSTEMD_SERVICE_PATH,SYSTEM_PRIMARY_IP,NGINX_BIN,NGINX_SERVICE,NGINX_SITE_AVAILABLE_PATH,NGINX_SITE_ENABLED_PATH,NGINX_DEFAULT_SITE_PATH,NGINX_DEFAULT_CONFD_PATH,PHP_FPM_SERVICE,PHP_FPM_SOCK bash "$0" "$@"
 }
 
 parse_args() {
@@ -1283,6 +1285,220 @@ install_system_packages() {
         "php${PHP_PREFERRED_VERSION}-bcmath" \
         "php${PHP_PREFERRED_VERSION}-intl" \
         "php${PHP_PREFERRED_VERSION}-gd"
+
+    if apt_package_exists "freeradius"; then
+        run_command "$APT_GET_BIN" install -y freeradius
+    fi
+
+    if apt_package_exists "freeradius-mysql"; then
+        run_command "$APT_GET_BIN" install -y freeradius-mysql
+    fi
+
+    if ! command_exists pm2; then
+        run_command "$NPM_BIN" install -g pm2
+    fi
+}
+
+write_runtime_systemd_units() {
+    if [ "$RUN_SYSTEM_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    local php_cli_path
+    local pm2_path
+    local pm2_home
+
+    php_cli_path="$(resolve_command_path "$PHP_BIN" || true)"
+    [ -n "$php_cli_path" ] || fail "Binary PHP tidak ditemukan untuk systemd unit: $PHP_BIN"
+
+    if [ "$RUN_PM2_BOOTSTRAP" = "1" ]; then
+        pm2_path="$(resolve_command_path pm2 || true)"
+        [ -n "$pm2_path" ] || fail "Binary pm2 tidak ditemukan untuk systemd unit PM2."
+        pm2_home="$(read_env WA_MULTI_SESSION_PM2_HOME)"
+        [ -n "$pm2_home" ] || pm2_home="$APP_DIR/storage/.pm2"
+    fi
+
+    cat > /etc/systemd/system/rafen-queue.service <<EOF
+[Unit]
+Description=Rafen queue worker
+After=network.target mariadb.service
+
+[Service]
+User=${APP_USER}
+Group=${APP_GROUP}
+UMask=0002
+WorkingDirectory=${APP_DIR}
+ExecStart=${php_cli_path} ${APP_DIR}/artisan queue:work --sleep=3 --tries=3 --timeout=90
+Restart=always
+RestartSec=3
+MemoryHigh=512M
+MemoryMax=800M
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    cat > /etc/systemd/system/rafen-schedule.service <<EOF
+[Unit]
+Description=Rafen scheduler
+
+[Service]
+User=${APP_USER}
+Group=${APP_GROUP}
+UMask=0002
+WorkingDirectory=${APP_DIR}
+ExecStart=${php_cli_path} ${APP_DIR}/artisan schedule:run
+EOF
+
+    cat > /etc/systemd/system/rafen-startup-tasks.service <<EOF
+[Unit]
+Description=Rafen startup tasks
+After=network.target mariadb.service
+Before=rafen-schedule.timer
+
+[Service]
+Type=oneshot
+User=${APP_USER}
+Group=${APP_GROUP}
+UMask=0002
+WorkingDirectory=${APP_DIR}
+ExecStart=${php_cli_path} ${APP_DIR}/artisan optimize:clear
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    cat > /etc/systemd/system/rafen-schedule.timer <<'EOF'
+[Unit]
+After=rafen-startup-tasks.service
+Description=Rafen scheduler timer
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    if [ "$RUN_PM2_BOOTSTRAP" = "1" ]; then
+        cat >"${PM2_SYSTEMD_SERVICE_PATH}" <<EOF
+[Unit]
+Description=PM2 process manager for deploy user
+Documentation=https://pm2.keymetrics.io/
+After=network.target
+
+[Service]
+Type=forking
+User=${DEPLOY_USER}
+Group=${APP_GROUP}
+UMask=0002
+LimitNOFILE=infinity
+LimitNPROC=infinity
+LimitCORE=infinity
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PM2_HOME=${pm2_home}
+PIDFile=${pm2_home}/pm2.pid
+Restart=on-failure
+
+ExecStart=${pm2_path} resurrect
+ExecReload=${pm2_path} reload all
+ExecStop=${pm2_path} kill
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    fi
+}
+
+bootstrap_wa_gateway_runtime() {
+    if [ "$RUN_PM2_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    local wa_path
+    local gateway_script
+    local pm2_home
+    local log_file
+    local auth_token
+    local master_key
+    local webhook_url
+    local db_host
+    local db_port
+    local db_name
+    local db_user
+    local db_password
+    local db_table
+    local command
+
+    wa_path="$APP_DIR/wa-multi-session"
+    gateway_script="$wa_path/gateway-server.cjs"
+
+    if [ ! -f "$wa_path/package.json" ] || [ ! -f "$gateway_script" ]; then
+        warn "Source wa-multi-session tidak lengkap di $wa_path, melewati bootstrap PM2 otomatis."
+        return
+    fi
+
+    command_exists pm2 || fail "Binary pm2 tidak ditemukan untuk bootstrap WA gateway."
+
+    pm2_home="$(read_env WA_MULTI_SESSION_PM2_HOME)"
+    [ -n "$pm2_home" ] || pm2_home="$APP_DIR/storage/.pm2"
+    log_file="$(read_env WA_MULTI_SESSION_LOG_FILE)"
+    [ -n "$log_file" ] || log_file="$APP_DIR/storage/logs/wa-multi-session-pm2.log"
+    auth_token="$(read_env WA_MULTI_SESSION_AUTH_TOKEN)"
+    master_key="$(read_env WA_MULTI_SESSION_MASTER_KEY)"
+    webhook_url="$(read_env WA_MULTI_SESSION_WEBHOOK_URL)"
+    db_host="$(read_env DB_HOST)"
+    db_port="$(read_env DB_PORT)"
+    db_name="$(read_env DB_DATABASE)"
+    db_user="$(read_env DB_USERNAME)"
+    db_password="$(read_env DB_PASSWORD)"
+    db_table="$(read_env WA_MULTI_SESSION_DB_TABLE)"
+    [ -n "$db_table" ] || db_table="wa_multi_session_auth_store"
+
+    run_command runuser -u "$DEPLOY_USER" -g "$DEPLOY_GROUP" -- /bin/bash -lc "cd $(shell_quote "$wa_path") && npm ci --omit=dev"
+
+    printf -v command '%s' "cd $(shell_quote "$wa_path") && \
+export PM2_HOME=$(shell_quote "$pm2_home") && \
+export WA_MS_PORT=3100 && \
+export WA_MS_HOST=127.0.0.1 && \
+export WA_MS_AUTH_TOKEN=$(shell_quote "$auth_token") && \
+export WA_MS_MASTER_KEY=$(shell_quote "$master_key") && \
+export WA_MS_DB_HOST=$(shell_quote "${db_host:-127.0.0.1}") && \
+export WA_MS_DB_PORT=$(shell_quote "${db_port:-3306}") && \
+export WA_MS_DB_NAME=$(shell_quote "$db_name") && \
+export WA_MS_DB_USER=$(shell_quote "$db_user") && \
+export WA_MS_DB_PASSWORD=$(shell_quote "$db_password") && \
+export WA_MS_DB_TABLE=$(shell_quote "$db_table") && \
+export WA_MS_WEBHOOK_URL=$(shell_quote "$webhook_url") && \
+mkdir -p $(shell_quote "$(dirname "$log_file")") $(shell_quote "$pm2_home") && \
+touch $(shell_quote "$log_file") && \
+pm2 delete wa-multi-session >/dev/null 2>&1 || true && \
+pm2 start gateway-server.cjs --name wa-multi-session --time --cwd $(shell_quote "$wa_path") --output $(shell_quote "$log_file") --error $(shell_quote "$log_file") && \
+pm2 save && \
+pm2 kill"
+
+    run_command runuser -u "$DEPLOY_USER" -g "$DEPLOY_GROUP" -- /bin/bash -lc "$command"
+}
+
+enable_runtime_services() {
+    if [ "$RUN_SYSTEM_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    run_command "$SYSTEMCTL_BIN" daemon-reload
+    run_command "$SYSTEMCTL_BIN" enable --now rafen-queue.service
+    run_command "$SYSTEMCTL_BIN" enable --now rafen-startup-tasks.service
+    run_command "$SYSTEMCTL_BIN" enable --now rafen-schedule.timer
+
+    if [ "$RUN_PM2_BOOTSTRAP" = "1" ] && [ -f "$PM2_SYSTEMD_SERVICE_PATH" ]; then
+        run_command "$SYSTEMCTL_BIN" enable --now "$(basename "$PM2_SYSTEMD_SERVICE_PATH")"
+    fi
+
+    if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'freeradius.service'; then
+        run_command "$SYSTEMCTL_BIN" enable --now freeradius.service
+    fi
 }
 
 detect_php_fpm_service() {
@@ -1827,10 +2043,13 @@ run_install_or_deploy() {
     npm_build
     write_nginx_site_config
     enable_nginx_site
+    write_runtime_systemd_units
     bootstrap_wireguard_system_service
     bootstrap_server_health_sudoers
     run_artisan_runtime_setup
+    bootstrap_wa_gateway_runtime
     apply_basic_permissions
+    enable_runtime_services
     restart_web_services
 
     info "Installer/deployment self-hosted selesai."
