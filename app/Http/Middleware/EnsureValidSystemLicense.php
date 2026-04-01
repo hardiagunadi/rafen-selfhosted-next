@@ -26,7 +26,6 @@ class EnsureValidSystemLicense
         if (
             $request->routeIs('super-admin.settings.license')
             || $request->routeIs('super-admin.settings.license.update')
-            || $request->routeIs('super-admin.settings.license.public-key.update')
         ) {
             return $next($request);
         }

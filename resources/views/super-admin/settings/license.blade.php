@@ -104,7 +104,7 @@
                 </div>
             </div>
 
-            <div class="card mt-3">
+            <div class="card">
                 <div class="card-header"><i class="fas fa-fingerprint mr-1"></i> Fingerprint Server</div>
                 <div class="card-body">
                     <p class="text-muted mb-2">Kirim fingerprint ini ke vendor untuk penerbitan lisensi.</p>
@@ -117,53 +117,6 @@
         </div>
 
         <div class="col-lg-5">
-            <div class="card">
-                <div class="card-header"><i class="fas fa-key mr-1"></i> Public Key Lisensi</div>
-                <div class="card-body">
-                    @if($snapshot['is_public_key_editable'])
-                        <form method="POST" action="{{ route('super-admin.settings.license.public-key.update') }}">
-                            @csrf
-                            <div class="form-group">
-                                <label for="licensePublicKeyInput">Public Key Verifikasi</label>
-                                <textarea
-                                    name="license_public_key"
-                                    id="licensePublicKeyInput"
-                                    rows="4"
-                                    class="form-control @error('license_public_key') is-invalid @enderror"
-                                    placeholder="Tempel public key base64 dari vendor"
-                                    style="font-family:monospace;font-size:12px;"
-                                    required
-                                >{{ old('license_public_key', $snapshot['public_key']) }}</textarea>
-                                @error('license_public_key')<div class="invalid-feedback">{{ $message }}</div>@enderror
-                                <small class="form-text text-muted">Key ini dipakai untuk memverifikasi signature file lisensi yang Anda unggah.</small>
-                            </div>
-
-                            <button type="submit" class="btn btn-outline-primary">
-                                <i class="fas fa-save mr-1"></i> Simpan Public Key
-                            </button>
-                        </form>
-                    @else
-                        <div class="alert alert-info mb-3">
-                            Public key lisensi dikelola melalui environment aplikasi.
-                        </div>
-
-                        <div class="form-group mb-0">
-                            <label for="licensePublicKeyReadOnly">Public Key Verifikasi</label>
-                            <textarea
-                                id="licensePublicKeyReadOnly"
-                                rows="4"
-                                class="form-control"
-                                style="font-family:monospace;font-size:12px;"
-                                readonly
-                            >{{ $snapshot['public_key'] }}</textarea>
-                            <small class="form-text text-muted">
-                                Atur <code>LICENSE_PUBLIC_KEY</code> dan biarkan <code>LICENSE_PUBLIC_KEY_EDITABLE=false</code> untuk mode production.
-                            </small>
-                        </div>
-                    @endif
-                </div>
-            </div>
-
             <div class="card mt-3">
                 <div class="card-header"><i class="fas fa-upload mr-1"></i> Upload Lisensi</div>
                 <div class="card-body">

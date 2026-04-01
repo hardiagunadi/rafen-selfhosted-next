@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\UpdateSystemLicensePublicKeyRequest;
 use App\Http\Requests\UploadSystemLicenseRequest;
 use App\Services\LicenseActivationRequestService;
 use App\Services\ServerHealthService;
@@ -43,38 +42,6 @@ class SuperAdminLicenseController extends Controller
         return redirect()
             ->route('super-admin.settings.license')
             ->with('error', $license->validation_error ?: 'Lisensi sistem gagal diverifikasi.');
-    }
-
-    public function updatePublicKey(
-        UpdateSystemLicensePublicKeyRequest $request,
-        SystemLicenseService $systemLicenseService,
-        ServerHealthService $serverHealthService,
-    ): RedirectResponse {
-        $this->ensureSelfHostedEnabled($systemLicenseService);
-        abort_unless(
-            $systemLicenseService->getSnapshot()['is_public_key_editable'] ?? false,
-            403,
-            'Public key lisensi dikelola melalui environment aplikasi.'
-        );
-
-        $license = $systemLicenseService->storePublicKey($request->validated('license_public_key'));
-        $message = 'Public key lisensi berhasil disimpan ke file environment aplikasi.';
-
-        if ($license->is_valid) {
-            $message .= ' Lisensi yang sudah diunggah juga berhasil diverifikasi ulang.';
-        }
-
-        if ($license->is_valid) {
-            return $this->withServiceBootstrapFeedback(
-                redirect()->route('super-admin.settings.license'),
-                $message,
-                $serverHealthService->startInactiveLicensedServices()
-            );
-        }
-
-        return redirect()
-            ->route('super-admin.settings.license')
-            ->with('success', $message);
     }
 
     public function activationRequest(

@@ -17,7 +17,6 @@ class SystemLicenseService
 
     public function __construct(
         private readonly LicenseFingerprintService $fingerprintService,
-        private readonly LicensePublicKeyService $licensePublicKeyService,
         private readonly LicenseSignatureService $signatureService,
     ) {}
 
@@ -59,9 +58,7 @@ class SystemLicenseService
             'license' => $license,
             'expected_fingerprint' => $this->fingerprintService->generate(),
             'license_path' => (string) config('license.path'),
-            'public_key' => $publicKey,
             'has_public_key' => $publicKey !== '',
-            'is_public_key_editable' => $this->licensePublicKeyService->isEditable(),
             'file_exists' => File::exists((string) config('license.path')),
             'is_self_hosted_enabled' => $this->isSelfHostedEnabled(),
             'is_enforced' => $this->isEnforced(),
@@ -100,17 +97,6 @@ class SystemLicenseService
         }
 
         return $this->syncFromDisk(now()->toImmutable());
-    }
-
-    public function storePublicKey(string $publicKey): SystemLicense
-    {
-        $this->licensePublicKeyService->store($publicKey);
-
-        if (File::exists((string) config('license.path'))) {
-            return $this->syncFromDisk(now()->toImmutable());
-        }
-
-        return $this->getCurrent();
     }
 
     public function syncFromDisk(?CarbonImmutable $verifiedAt = null): SystemLicense

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 
 class ServerHealthService
@@ -214,16 +215,26 @@ class ServerHealthService
     {
         $unit = (string) $definition['unit'];
         $name = (string) $definition['name'];
-        $command = $action === 'start_permanent'
-            ? 'sudo /bin/systemctl enable --now '.$unit
-            : 'sudo /bin/systemctl restart '.$unit;
-
+        $command = $this->systemdControlCommand($unit, $action);
         $process = Process::timeout(30)->run($command);
+        $rawError = trim($process->errorOutput() ?: $process->output());
+
+        if (! $process->successful() && $this->shouldRetryAfterDaemonReload($unit, $rawError)) {
+            $reload = Process::timeout(30)->run('sudo /bin/systemctl daemon-reload');
+            $reloadError = trim($reload->errorOutput() ?: $reload->output());
+
+            if ($reload->successful()) {
+                $process = Process::timeout(30)->run($command);
+                $rawError = trim($process->errorOutput() ?: $process->output());
+            } elseif ($reloadError !== '') {
+                $rawError .= ($rawError !== '' ? ' ' : '').'Daemon reload gagal: '.$reloadError;
+            }
+        }
+
         usleep(500000);
 
         $service = $this->snapshot($definition);
         $ok = (bool) ($service['running'] ?? false);
-        $rawError = trim($process->errorOutput() ?: $process->output());
 
         return [
             'success' => $ok,
@@ -273,6 +284,29 @@ class ServerHealthService
         }
 
         return trim($result->errorOutput());
+    }
+
+    private function systemdControlCommand(string $unit, string $action): string
+    {
+        return $action === 'start_permanent'
+            ? 'sudo /bin/systemctl enable --now '.$unit
+            : 'sudo /bin/systemctl restart '.$unit;
+    }
+
+    private function shouldRetryAfterDaemonReload(string $unit, string $rawError): bool
+    {
+        if ($rawError === '') {
+            return false;
+        }
+
+        if (! str_contains($rawError, 'does not exist')) {
+            return false;
+        }
+
+        return File::exists('/etc/systemd/system/'.$unit.'.service')
+            || File::exists('/etc/systemd/system/'.$unit)
+            || File::exists('/lib/systemd/system/'.$unit.'.service')
+            || File::exists('/lib/systemd/system/'.$unit);
     }
 
     private function formatSystemdFailureMessage(string $name, string $rawError): string

@@ -1602,7 +1602,7 @@ write_server_health_sudoers() {
     systemctl_path="$(resolve_command_path "$SYSTEMCTL_BIN" || true)"
     [ -n "$systemctl_path" ] || fail "Binary systemctl tidak ditemukan untuk sudoers Server Health: $SYSTEMCTL_BIN"
 
-    sudoers_content="$APP_USER ALL=(root) NOPASSWD: ${systemctl_path} restart rafen-queue, ${systemctl_path} enable --now rafen-queue, ${systemctl_path} restart rafen-schedule.timer, ${systemctl_path} enable --now rafen-schedule.timer, ${systemctl_path} restart freeradius, ${systemctl_path} enable --now freeradius, ${systemctl_path} restart genieacs-cwmp, ${systemctl_path} enable --now genieacs-cwmp, ${systemctl_path} restart genieacs-nbi, ${systemctl_path} enable --now genieacs-nbi, /bin/sync, /usr/bin/tee /proc/sys/vm/drop_caches"
+    sudoers_content="$APP_USER ALL=(root) NOPASSWD: ${systemctl_path} daemon-reload, ${systemctl_path} restart rafen-queue, ${systemctl_path} enable --now rafen-queue, ${systemctl_path} restart rafen-schedule.timer, ${systemctl_path} enable --now rafen-schedule.timer, ${systemctl_path} restart freeradius, ${systemctl_path} enable --now freeradius, ${systemctl_path} restart genieacs-cwmp, ${systemctl_path} enable --now genieacs-cwmp, ${systemctl_path} restart genieacs-nbi, ${systemctl_path} enable --now genieacs-nbi, /bin/sync, /usr/bin/tee /proc/sys/vm/drop_caches"
 
     if [ "$DRY_RUN" = "1" ]; then
         printf '[DRY-RUN] write sudoers %s => %s\n' "$SERVER_HEALTH_SUDOERS_PATH" "$sudoers_content"

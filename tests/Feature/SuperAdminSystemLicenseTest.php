@@ -108,7 +108,8 @@ it('shows license status page to super admin even when license is missing', func
         ->get(route('super-admin.settings.license'))
         ->assertSuccessful()
         ->assertSee('Lisensi Sistem')
-        ->assertSee('Belum Ada Lisensi');
+        ->assertSee('Belum Ada Lisensi')
+        ->assertDontSee('Public Key Lisensi');
 });
 
 it('shows the system license menu near email settings for super admin', function () {
@@ -175,65 +176,16 @@ it('rejects uploaded license with mismatched fingerprint', function () {
         ->assertRedirect(route('super-admin.settings.license'));
 });
 
-it('updates the system license public key from the license page', function () {
-    $superAdmin = createSuperAdminForLicense();
-    $newKeypair = sodium_crypto_sign_keypair();
-    $newPublicKey = base64_encode(sodium_crypto_sign_publickey($newKeypair));
-
-    config()->set('license.public_key', '');
-    config()->set('license.public_key_editable', true);
-
-    $this->actingAs($superAdmin)
-        ->post(route('super-admin.settings.license.public-key.update'), [
-            'license_public_key' => $newPublicKey,
-        ])
-        ->assertRedirect(route('super-admin.settings.license'))
-        ->assertSessionHas('success');
-
-    expect(config('license.public_key'))->toBe($newPublicKey)
-        ->and(File::get($this->environmentFilePath))->toContain('LICENSE_PUBLIC_KEY='.$newPublicKey);
-
-    $this->actingAs($superAdmin)
-        ->get(route('super-admin.settings.license'))
-        ->assertSuccessful()
-        ->assertSee('Tersimpan')
-        ->assertSee($newPublicKey);
-});
-
-it('validates the format of the system license public key', function () {
-    $superAdmin = createSuperAdminForLicense();
-    config()->set('license.public_key_editable', true);
-
-    $this->actingAs($superAdmin)
-        ->from(route('super-admin.settings.license'))
-        ->post(route('super-admin.settings.license.public-key.update'), [
-            'license_public_key' => 'invalid-public-key',
-        ])
-        ->assertRedirect(route('super-admin.settings.license'))
-        ->assertSessionHasErrors(['license_public_key']);
-});
-
-it('shows the system license public key as environment-managed by default', function () {
-    $superAdmin = createSuperAdminForLicense();
-
-    $this->actingAs($superAdmin)
-        ->get(route('super-admin.settings.license'))
-        ->assertSuccessful()
-        ->assertSee('Public key lisensi dikelola melalui environment aplikasi.')
-        ->assertSee('LICENSE_PUBLIC_KEY_EDITABLE=false')
-        ->assertDontSee('Simpan Public Key');
-});
-
-it('forbids updating the system license public key when editing is disabled', function () {
+it('returns not found for the removed self-hosted public key update endpoint', function () {
     $superAdmin = createSuperAdminForLicense();
     $newKeypair = sodium_crypto_sign_keypair();
     $newPublicKey = base64_encode(sodium_crypto_sign_publickey($newKeypair));
 
     $this->actingAs($superAdmin)
-        ->post(route('super-admin.settings.license.public-key.update'), [
+        ->post('/super-admin/settings/license/public-key', [
             'license_public_key' => $newPublicKey,
         ])
-        ->assertForbidden();
+        ->assertNotFound();
 });
 
 it('keeps saas dashboard accessible when system license table is not migrated', function () {

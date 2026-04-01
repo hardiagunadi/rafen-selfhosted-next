@@ -5,6 +5,7 @@ use App\Services\FeatureGateService;
 use App\Services\ServerHealthService;
 use App\Services\WaMultiSessionManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 
 uses(RefreshDatabase::class);
@@ -83,7 +84,7 @@ it('starts inactive systemd service permanently when controlled from server heal
 
     $statusChecks = 0;
 
-    Process::fake(function ($process) use (&$statusChecks) {
+    Process::fake(function ($process) use (&$statusChecks, &$enableAttempts) {
         return match ($process->command) {
             '/bin/systemctl is-active rafen-queue' => (++$statusChecks === 1)
                 ? Process::result('inactive', '', 3)
@@ -105,6 +106,43 @@ it('starts inactive systemd service permanently when controlled from server heal
         ->and(data_get($result, 'service.primary_action'))->toBe('restart');
 
     Process::assertRan(fn ($process) => $process->command === 'sudo /bin/systemctl enable --now rafen-queue');
+});
+
+it('reloads systemd and retries when a service file exists but systemd has not loaded it yet', function () {
+    config()->set('license.self_hosted_enabled', false);
+
+    $statusChecks = 0;
+    $enableAttempts = 0;
+
+    File::shouldReceive('exists')
+        ->once()
+        ->with('/etc/systemd/system/rafen-queue.service')
+        ->andReturn(true);
+
+    Process::fake(function ($process) use (&$statusChecks, &$enableAttempts) {
+        return match ($process->command) {
+            '/bin/systemctl is-active rafen-queue' => (++$statusChecks === 1)
+                ? Process::result('inactive', '', 3)
+                : Process::result('active', '', 0),
+            'sudo /bin/systemctl enable --now rafen-queue' => (++$enableAttempts === 1)
+                ? Process::result('', 'Failed to enable unit: Unit file rafen-queue.service does not exist.', 1)
+                : Process::result('', '', 0),
+            'sudo /bin/systemctl daemon-reload' => Process::result('', '', 0),
+            default => Process::result('', 'Unexpected command in server health retry test.', 1),
+        };
+    });
+
+    $manager = Mockery::mock(WaMultiSessionManager::class);
+    $manager->shouldNotReceive('status');
+    $this->app->instance(WaMultiSessionManager::class, $manager);
+
+    $result = app(ServerHealthService::class)->control('rafen-queue');
+
+    expect($result['success'])->toBeTrue()
+        ->and($result['action'])->toBe('start_permanent')
+        ->and($result['status'])->toBe('active');
+
+    Process::assertRan(fn ($process) => $process->command === 'sudo /bin/systemctl daemon-reload');
 });
 
 it('suggests rerunning installer when sudoers for server health is missing', function () {
