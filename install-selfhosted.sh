@@ -1200,6 +1200,23 @@ normalize_host() {
     printf '%s' "$value"
 }
 
+is_ip_address() {
+    local value="$1"
+
+    case "$value" in
+        *.*.*.*)
+            if printf '%s' "$value" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+                return 0
+            fi
+            ;;
+        *:*)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
 detect_primary_ip() {
     local detected_ip=""
 
@@ -1208,12 +1225,12 @@ detect_primary_ip() {
         return
     fi
 
-    if command_exists hostname; then
-        detected_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    if command_exists ip; then
+        detected_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)"
     fi
 
-    if [ -z "$detected_ip" ] && command_exists ip; then
-        detected_ip="$(ip route get 1.1.1.1 2>/dev/null | awk '/src/ {for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)"
+    if [ -z "$detected_ip" ] && command_exists hostname; then
+        detected_ip="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
     fi
 
     if [ -z "$detected_ip" ]; then
@@ -1240,7 +1257,7 @@ resolve_public_host() {
     current_app_url="$(read_env APP_URL)"
     current_host="$(normalize_host "$current_app_url")"
 
-    if [ -n "$current_host" ] && [ "$current_host" != "localhost" ] && [ "$current_host" != "127.0.0.1" ]; then
+    if [ -n "$current_host" ] && [ "$current_host" != "localhost" ] && [ "$current_host" != "127.0.0.1" ] && ! is_ip_address "$current_host"; then
         printf '%s' "$current_host"
         return
     fi
