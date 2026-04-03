@@ -1802,8 +1802,10 @@ bootstrap_wa_gateway_runtime() {
 
     wa_path="$APP_DIR/wa-multi-session"
     gateway_script="$wa_path/gateway-server.cjs"
+    local wa_dist_entry
+    wa_dist_entry="$wa_path/dist/index.js"
 
-    if [ ! -f "$wa_path/package.json" ] || [ ! -f "$gateway_script" ]; then
+    if [ ! -f "$wa_path/package.json" ] || [ ! -f "$gateway_script" ] || [ ! -f "$wa_dist_entry" ]; then
         warn "Source wa-multi-session tidak lengkap di $wa_path, melewati bootstrap PM2 otomatis."
         return
     fi

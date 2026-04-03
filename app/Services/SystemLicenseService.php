@@ -140,6 +140,7 @@ class SystemLicenseService
         }
 
         $license->fill([
+            'status' => 'active',
             'license_id' => $decodedPayload['license_id'],
             'customer_name' => $decodedPayload['customer_name'],
             'instance_name' => $decodedPayload['instance_name'],
