@@ -55,6 +55,15 @@ return [
     'self_hosted_registry' => [
         'url' => env('SELF_HOSTED_REGISTRY_URL', ''),
         'token' => env('SELF_HOSTED_REGISTRY_TOKEN', ''),
+        'heartbeat_stale_after_minutes' => (int) env('SELF_HOSTED_HEARTBEAT_STALE_AFTER_MINUTES', 60),
+    ],
+
+    'self_hosted_update' => [
+        'manifest_url' => env('SELF_HOSTED_UPDATE_MANIFEST_URL', ''),
+        'channel' => env('SELF_HOSTED_UPDATE_CHANNEL', 'stable'),
+        'repository' => env('SELF_HOSTED_UPDATE_REPOSITORY', 'git@github.com:hardiagunadi/rafen-selfhosted-next.git'),
+        'workdir' => env('SELF_HOSTED_UPDATE_WORKDIR', base_path()),
+        'ignore_dirty_worktree' => (bool) env('SELF_HOSTED_UPDATE_IGNORE_DIRTY_WORKTREE', false),
     ],
 
 ];

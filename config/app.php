@@ -17,6 +17,8 @@ return [
 
     'version' => env('APP_VERSION', 'main-dev'),
 
+    'commit' => env('APP_COMMIT', ''),
+
     'self_hosted_toolkit_ignore_dirty_worktree' => (bool) env('SELF_HOSTED_TOOLKIT_IGNORE_DIRTY_WORKTREE', false),
 
     /*

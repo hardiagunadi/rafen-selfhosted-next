@@ -1538,6 +1538,14 @@
                             <p>{{ $isSelfHostedApp ? 'Lisensi Sistem' : 'Public Key Lisensi' }}</p>
                         </a>
                     </li>
+                    @if($isSelfHostedApp)
+                    <li class="nav-item">
+                        <a href="{{ route('super-admin.settings.app-update') }}" class="nav-link {{ request()->routeIs('super-admin.settings.app-update*') ? 'active' : '' }}">
+                            <i class="nav-icon fas fa-cloud-download-alt"></i>
+                            <p>App Update</p>
+                        </a>
+                    </li>
+                    @endif
                     @if(!$isSelfHostedApp)
                     @includeIf('self-hosted-license.partials.admin-nav-item')
                     @endif

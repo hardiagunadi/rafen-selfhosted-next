@@ -118,6 +118,12 @@ Schedule::command('license:refresh')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Kirim heartbeat status instance self-hosted ke SaaS control plane setiap 30 menit
+Schedule::command('self-hosted:heartbeat')
+    ->everyThirtyMinutes()
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Hapus otomatis tenant trial yang expired > 7 hari dan belum pernah beli paket (setiap hari jam 02:00)
 Schedule::command('tenants:cleanup-expired-trials')
     ->dailyAt('02:00')
