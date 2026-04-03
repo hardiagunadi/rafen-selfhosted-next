@@ -372,11 +372,20 @@ normalize_php_runtime() {
 }
 
 prepare_database_credentials() {
+    local existing_db_password=""
+
     if ! local_database_host; then
         return
     fi
 
     if [ -n "$DB_PASSWORD" ] || [ "$DB_USERNAME" = "root" ]; then
+        return
+    fi
+
+    existing_db_password="$(read_env DB_PASSWORD)"
+    if [ -n "$existing_db_password" ]; then
+        DB_PASSWORD="$existing_db_password"
+        info "DB_PASSWORD tidak diberikan, menggunakan nilai yang sudah ada di .env."
         return
     fi
 
@@ -1958,6 +1967,68 @@ enable_runtime_services() {
     fi
 }
 
+assert_unit_active_if_exists() {
+    local unit="$1"
+    local state
+
+    state="$("$SYSTEMCTL_BIN" is-active "$unit" 2>/dev/null || true)"
+    if [ "$state" != "active" ]; then
+        fail "Unit wajib ${unit} tidak active (status: ${state:-unknown}). Periksa dengan: systemctl status ${unit} --no-pager -l"
+    fi
+}
+
+assert_unit_not_failed() {
+    local unit="$1"
+    local state
+
+    state="$("$SYSTEMCTL_BIN" is-failed "$unit" 2>/dev/null || true)"
+    if [ "$state" = "failed" ]; then
+        fail "Unit ${unit} berada pada status failed. Periksa dengan: systemctl status ${unit} --no-pager -l"
+    fi
+}
+
+verify_runtime_services() {
+    local php_fpm_service
+    local db_service=""
+
+    if [ "$RUN_SYSTEM_BOOTSTRAP" != "1" ] || [ "$DRY_RUN" = "1" ]; then
+        return
+    fi
+
+    php_fpm_service="$(detect_php_fpm_service)"
+
+    assert_unit_active_if_exists "${php_fpm_service}.service"
+    assert_unit_active_if_exists "${NGINX_SERVICE}.service"
+    assert_unit_active_if_exists "rafen-queue.service"
+    assert_unit_active_if_exists "rafen-schedule.timer"
+    assert_unit_not_failed "rafen-schedule.service"
+    assert_unit_active_if_exists "freeradius.service"
+
+    if local_database_host; then
+        if "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'mariadb.service'; then
+            db_service="mariadb.service"
+        elif "$SYSTEMCTL_BIN" list-unit-files --type=service --no-legend | awk '{print $1}' | grep -Fxq 'mysql.service'; then
+            db_service="mysql.service"
+        fi
+
+        if [ -n "$db_service" ]; then
+            assert_unit_active_if_exists "$db_service"
+        fi
+    fi
+
+    if [ "$RUN_PM2_BOOTSTRAP" = "1" ] && [ -f "$PM2_SYSTEMD_SERVICE_PATH" ]; then
+        assert_unit_active_if_exists "$(basename "$PM2_SYSTEMD_SERVICE_PATH")"
+    fi
+
+    if [ "$RUN_GENIEACS_BOOTSTRAP" = "1" ]; then
+        assert_unit_active_if_exists "mongod.service"
+        assert_unit_active_if_exists "genieacs-cwmp.service"
+        assert_unit_active_if_exists "genieacs-fs.service"
+        assert_unit_active_if_exists "genieacs-nbi.service"
+        assert_unit_active_if_exists "genieacs-ui.service"
+    fi
+}
+
 detect_php_fpm_service() {
     if [ -n "$PHP_FPM_SERVICE" ]; then
         printf '%s' "$PHP_FPM_SERVICE"
@@ -2143,6 +2214,9 @@ provision_application_database() {
         run_command "$db_cli" -e "CREATE USER IF NOT EXISTS '${db_user_sql}'@'localhost' IDENTIFIED BY '${db_password_sql}';"
         run_command "$db_cli" -e "CREATE USER IF NOT EXISTS '${db_user_sql}'@'127.0.0.1' IDENTIFIED BY '${db_password_sql}';"
         run_command "$db_cli" -e "CREATE USER IF NOT EXISTS '${db_user_sql}'@'::1' IDENTIFIED BY '${db_password_sql}';"
+        run_command "$db_cli" -e "ALTER USER '${db_user_sql}'@'localhost' IDENTIFIED BY '${db_password_sql}';"
+        run_command "$db_cli" -e "ALTER USER '${db_user_sql}'@'127.0.0.1' IDENTIFIED BY '${db_password_sql}';"
+        run_command "$db_cli" -e "ALTER USER '${db_user_sql}'@'::1' IDENTIFIED BY '${db_password_sql}';"
         run_command "$db_cli" -e "GRANT ALL PRIVILEGES ON \`${db_name_sql}\`.* TO '${db_user_sql}'@'localhost';"
         run_command "$db_cli" -e "GRANT ALL PRIVILEGES ON \`${db_name_sql}\`.* TO '${db_user_sql}'@'127.0.0.1';"
         run_command "$db_cli" -e "GRANT ALL PRIVILEGES ON \`${db_name_sql}\`.* TO '${db_user_sql}'@'::1';"
@@ -2494,6 +2568,25 @@ apply_basic_permissions() {
         if [ -f "$ENV_FILE" ]; then
             run_command chmod 640 "$ENV_FILE"
         fi
+    fi
+}
+
+ensure_env_file_readable_by_installer() {
+    local install_user
+
+    if [ "$ALLOW_NON_ROOT" = "1" ] || [ "$DRY_RUN" = "1" ]; then
+        return
+    fi
+
+    [ -f "$ENV_FILE" ] || return
+    install_user="$(installer_exec_user)"
+
+    if command_exists chown; then
+        run_command chown "$install_user:$DEPLOY_GROUP" "$ENV_FILE"
+    fi
+
+    if command_exists chmod; then
+        run_command chmod 640 "$ENV_FILE"
     fi
 }
 
@@ -2981,6 +3074,7 @@ ensure_app_key() {
 
 run_artisan_runtime_setup() {
     command_exists "$PHP_BIN" || fail "PHP binary tidak ditemukan: $PHP_BIN"
+    ensure_env_file_readable_by_installer
 
     run_in_app_as_installer_user "$PHP_BIN" artisan config:clear --ansi
     ensure_app_key
@@ -3138,6 +3232,7 @@ run_install_or_deploy() {
     apply_basic_permissions
     enable_runtime_services
     restart_web_services
+    verify_runtime_services
 
     info "Installer/deployment self-hosted selesai."
     show_status
