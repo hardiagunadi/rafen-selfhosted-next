@@ -20,6 +20,7 @@ it('stages the self-hosted extraction bundle into a target directory', function 
     expect(File::exists($target.'/manifest.json'))->toBeTrue()
         ->and(File::exists($target.'/_self_hosted_update_notice.json'))->toBeTrue()
         ->and(File::exists($target.'/portable/app/Services/SystemLicenseService.php'))->toBeTrue()
+        ->and(File::exists($target.'/portable/wa-multi-session/dist/index.js'))->toBeTrue()
         ->and(File::exists($target.'/portable/app/Http/Controllers/Controller.php'))->toBeTrue()
         ->and(File::exists($target.'/portable/app/Http/Middleware/SuperAdminMiddleware.php'))->toBeTrue()
         ->and(File::exists($target.'/portable/routes/self_hosted_license.php'))->toBeTrue()

@@ -25,6 +25,7 @@ it('imports the portable self-hosted bundle into a target directory', function (
         ->and(File::exists($targetDirectory.'/app/Http/Controllers/Controller.php'))->toBeTrue()
         ->and(File::exists($targetDirectory.'/app/Http/Middleware/SuperAdminMiddleware.php'))->toBeTrue()
         ->and(File::exists($targetDirectory.'/routes/self_hosted_license.php'))->toBeTrue()
+        ->and(File::exists($targetDirectory.'/wa-multi-session/dist/index.js'))->toBeTrue()
         ->and(File::exists($targetDirectory.'/.self-hosted-import.json'))->toBeTrue()
         ->and(File::exists($targetDirectory.'/_self_hosted_update_notice.json'))->toBeTrue();
 

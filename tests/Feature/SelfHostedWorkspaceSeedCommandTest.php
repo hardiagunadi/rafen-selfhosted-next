@@ -20,6 +20,7 @@ it('creates a complete self-hosted workspace seed', function () {
     expect(File::exists($target.'/app/Services/SystemLicenseService.php'))->toBeTrue()
         ->and(File::exists($target.'/.env.example'))->toBeTrue()
         ->and(File::exists($target.'/app/Models/User.php'))->toBeTrue()
+        ->and(File::exists($target.'/wa-multi-session/dist/index.js'))->toBeTrue()
         ->and(File::exists($target.'/app/Http/Controllers/Controller.php'))->toBeTrue()
         ->and(File::exists($target.'/app/Http/Controllers/Auth/LoginController.php'))->toBeTrue()
         ->and(File::exists($target.'/app/Http/Middleware/SuperAdminMiddleware.php'))->toBeTrue()

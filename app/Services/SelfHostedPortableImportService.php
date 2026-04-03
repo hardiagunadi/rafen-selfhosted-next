@@ -28,8 +28,11 @@ class SelfHostedPortableImportService
         }
 
         $manifest = json_decode((string) File::get($manifestPath), true);
+        $portableDirectories = $manifest['portable_directories'] ?? [];
 
-        if (! is_array($manifest) || ! is_array($manifest['portable_files'] ?? null)) {
+        if (! is_array($manifest)
+            || ! is_array($manifest['portable_files'] ?? null)
+            || ! is_array($portableDirectories)) {
             throw new RuntimeException('Manifest staging tidak valid.');
         }
 
@@ -37,6 +40,8 @@ class SelfHostedPortableImportService
 
         $overwrittenFiles = 0;
         $copiedFiles = 0;
+        $overwrittenDirectories = 0;
+        $copiedDirectories = 0;
 
         foreach ($manifest['portable_files'] as $relativePath) {
             if (! is_string($relativePath) || $relativePath === '') {
@@ -64,13 +69,45 @@ class SelfHostedPortableImportService
             $copiedFiles++;
         }
 
+        foreach ($portableDirectories as $relativePath) {
+            if (! is_string($relativePath) || $relativePath === '') {
+                continue;
+            }
+
+            $source = $portableRoot.'/'.$relativePath;
+            $destination = $targetDirectory.'/'.$relativePath;
+
+            if (! File::isDirectory($source)) {
+                throw new RuntimeException("Portable source directory tidak ditemukan: {$relativePath}");
+            }
+
+            if (File::exists($destination) && ! $force) {
+                throw new RuntimeException("Directory target sudah ada: {$relativePath}. Gunakan --force untuk menimpa.");
+            }
+
+            File::ensureDirectoryExists(dirname($destination));
+
+            if (File::isDirectory($destination)) {
+                File::deleteDirectory($destination);
+                $overwrittenDirectories++;
+            } elseif (File::exists($destination)) {
+                File::delete($destination);
+                $overwrittenDirectories++;
+            }
+
+            File::copyDirectory($source, $destination);
+            $copiedDirectories++;
+        }
+
         File::put(
             $targetDirectory.'/.self-hosted-import.json',
             json_encode([
                 'imported_at' => now()->toIso8601String(),
                 'source_stage_directory' => $stageDirectory,
                 'portable_file_count' => $copiedFiles,
+                'portable_directory_count' => $copiedDirectories,
                 'overwritten_file_count' => $overwrittenFiles,
+                'overwritten_directory_count' => $overwrittenDirectories,
                 'update_notice_path' => File::exists($updateNoticePath) ? $targetDirectory.'/_self_hosted_update_notice.json' : null,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
         );
@@ -82,7 +119,9 @@ class SelfHostedPortableImportService
         return [
             'target_directory' => $targetDirectory,
             'copied_file_count' => $copiedFiles,
+            'copied_directory_count' => $copiedDirectories,
             'overwritten_file_count' => $overwrittenFiles,
+            'overwritten_directory_count' => $overwrittenDirectories,
             'update_notice_path' => File::exists($updateNoticePath) ? $targetDirectory.'/_self_hosted_update_notice.json' : null,
         ];
     }

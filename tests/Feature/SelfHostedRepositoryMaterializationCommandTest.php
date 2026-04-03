@@ -24,6 +24,7 @@ it('materializes a self-hosted repository candidate', function () {
         ->and(File::exists($target.'/public/index.php'))->toBeTrue()
         ->and(File::exists($target.'/app/Models/User.php'))->toBeTrue()
         ->and(File::exists($target.'/app/Services/SystemLicenseService.php'))->toBeTrue()
+        ->and(File::exists($target.'/wa-multi-session/dist/index.js'))->toBeTrue()
         ->and(File::exists($target.'/tests/Pest.php'))->toBeTrue()
         ->and(File::exists($target.'/tests/TestCase.php'))->toBeTrue()
         ->and(File::exists($target.'/tests/Feature/SelfHostedBootstrapTest.php'))->toBeTrue()

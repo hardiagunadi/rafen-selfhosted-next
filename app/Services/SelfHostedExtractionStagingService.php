@@ -18,6 +18,7 @@ class SelfHostedExtractionStagingService
     public function stage(string $targetDirectory, bool $force = false): array
     {
         $manifest = $this->manifestService->build();
+        $portableDirectories = $manifest['portable_directories'] ?? [];
         $targetDirectory = rtrim($targetDirectory, DIRECTORY_SEPARATOR);
 
         if ($targetDirectory === '') {
@@ -44,6 +45,14 @@ class SelfHostedExtractionStagingService
             $this->copyRelativePath(base_path($path), $portableRoot.'/'.$path);
         }
 
+        foreach ($portableDirectories as $path) {
+            if (! is_string($path) || $path === '') {
+                continue;
+            }
+
+            $this->copyRelativeDirectory(base_path($path), $portableRoot.'/'.$path);
+        }
+
         foreach ($manifest['integration_touchpoints'] as $path) {
             $this->copyRelativePath(base_path($path), $referencesRoot.'/'.$path);
         }
@@ -62,6 +71,7 @@ class SelfHostedExtractionStagingService
             'references_root' => $referencesRoot,
             'update_notice_path' => $updateNoticePath,
             'portable_file_count' => count($manifest['portable_files']),
+            'portable_directory_count' => count($portableDirectories),
             'integration_touchpoint_count' => count($manifest['integration_touchpoints']),
         ];
     }
@@ -74,5 +84,16 @@ class SelfHostedExtractionStagingService
 
         File::ensureDirectoryExists(dirname($destination));
         File::copy($source, $destination);
+    }
+
+    private function copyRelativeDirectory(string $source, string $destination): void
+    {
+        if (! File::isDirectory($source)) {
+            throw new RuntimeException("Source extraction directory tidak ditemukan: {$source}");
+        }
+
+        File::deleteDirectory($destination);
+        File::ensureDirectoryExists(dirname($destination));
+        File::copyDirectory($source, $destination);
     }
 }

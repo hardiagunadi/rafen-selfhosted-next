@@ -1827,6 +1827,7 @@ bootstrap_wa_gateway_runtime() {
     db_table="$(read_env WA_MULTI_SESSION_DB_TABLE)"
     [ -n "$db_table" ] || db_table="wa_multi_session_auth_store"
 
+    ensure_wa_gateway_dist_artifacts "$wa_path"
     run_command runuser -u "$DEPLOY_USER" -g "$DEPLOY_GROUP" -- /bin/bash -lc "cd $(shell_quote "$wa_path") && npm ci --omit=dev"
 
     printf -v command '%s' "cd $(shell_quote "$wa_path") && \
@@ -1846,10 +1847,65 @@ mkdir -p $(shell_quote "$(dirname "$log_file")") $(shell_quote "$pm2_home") && \
 touch $(shell_quote "$log_file") && \
 pm2 delete wa-multi-session >/dev/null 2>&1 || true && \
 pm2 start gateway-server.cjs --name wa-multi-session --time --cwd $(shell_quote "$wa_path") --output $(shell_quote "$log_file") --error $(shell_quote "$log_file") && \
+sleep 3 && \
+pm2 jlist | node -e 'const fs = require(\"fs\"); const list = JSON.parse(fs.readFileSync(0, \"utf8\") || \"[]\"); const proc = list.find((item) => item && item.name === \"wa-multi-session\"); const status = proc && proc.pm2_env ? String(proc.pm2_env.status || \"\") : \"\"; if (status !== \"online\") { console.error(`wa-multi-session gagal online via PM2 (status: ${status || \"missing\"}).`); process.exit(1); }' && \
 pm2 save && \
 pm2 kill"
 
     run_command runuser -u "$DEPLOY_USER" -g "$DEPLOY_GROUP" -- /bin/bash -lc "$command"
+}
+
+ensure_wa_gateway_dist_artifacts() {
+    local wa_path="$1"
+    local package_json
+    local dist_index
+    local node_bin
+    local package_name
+    local package_version
+    local temp_dir
+    local npm_spec
+
+    package_json="$wa_path/package.json"
+    dist_index="$wa_path/dist/index.js"
+
+    if [ -f "$dist_index" ]; then
+        return
+    fi
+
+    [ -f "$package_json" ] || fail "File package.json wa-multi-session tidak ditemukan di $wa_path."
+    command_exists tar || fail "Binary tar tidak ditemukan. Installer tidak bisa memulihkan artifact wa-multi-session/dist."
+
+    node_bin="$(resolve_command_path node || true)"
+    [ -n "$node_bin" ] || fail "Binary node tidak ditemukan. Installer tidak bisa membaca versi package wa-multi-session."
+
+    package_name="$("$node_bin" -p "const pkg = require(process.argv[1]); process.stdout.write(String(pkg.name || ''))" "$package_json" 2>/dev/null || true)"
+    package_version="$("$node_bin" -p "const pkg = require(process.argv[1]); process.stdout.write(String(pkg.version || ''))" "$package_json" 2>/dev/null || true)"
+
+    [ -n "$package_name" ] || package_name="wa-multi-session"
+    [ -n "$package_version" ] || fail "Versi package wa-multi-session tidak ditemukan di $package_json."
+
+    npm_spec="${package_name}@${package_version}"
+
+    if [ "$DRY_RUN" = "1" ]; then
+        printf '[DRY-RUN] restore missing wa-multi-session dist via npm pack %s into %s\n' "$npm_spec" "$wa_path"
+        return 0
+    fi
+
+    info "Artifact wa-multi-session/dist belum ada. Mengambil runtime package ${npm_spec} dari npm."
+
+    temp_dir="$(mktemp -d)"
+    run_command chown "$DEPLOY_USER:$DEPLOY_GROUP" "$temp_dir"
+
+    run_command runuser -u "$DEPLOY_USER" -g "$DEPLOY_GROUP" -- /bin/bash -lc "cd $(shell_quote "$temp_dir") && npm pack $(shell_quote "$npm_spec") >/dev/null && tarball=\$(ls -1 *.tgz | tail -n1) && [ -n \"\$tarball\" ] && tar -xzf \"\$tarball\""
+
+    if [ ! -f "$temp_dir/package/dist/index.js" ]; then
+        rm -rf "$temp_dir"
+        fail "Gagal memulihkan artifact wa-multi-session/dist dari package ${npm_spec}."
+    fi
+
+    run_command rm -rf "$wa_path/dist"
+    run_command cp -R "$temp_dir/package/dist" "$wa_path/dist"
+    rm -rf "$temp_dir"
 }
 
 enable_runtime_services() {

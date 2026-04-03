@@ -35,6 +35,11 @@ it('ships self-hosted installer automation for single MariaDB and radius bootstr
         ->toContain('render_freeradius_sql_module()')
         ->toContain('create_radius_schema_if_missing')
         ->toContain('render_freeradius_sql_module "$fr_dir/mods-available/sql"')
+        ->toContain('ensure_wa_gateway_dist_artifacts "$wa_path"')
+        ->toContain('Artifact wa-multi-session/dist belum ada. Mengambil runtime package ${npm_spec} dari npm.')
+        ->toContain('npm pack $(shell_quote "$npm_spec") >/dev/null')
+        ->toContain('pm2 jlist | node -e')
+        ->toContain('wa-multi-session gagal online via PM2')
         ->toContain("table_name IN ('radcheck','radreply','radgroupcheck','radgroupreply','radacct','radpostauth','radusergroup','radippool','nas')")
         ->toContain('Schema FreeRADIUS siap dipakai di database ${DB_DATABASE}.')
         ->toContain('Installer self-hosted tidak lagi mendukung sqlite sebagai database utama');
