@@ -42,6 +42,8 @@ class Invoice extends Model
         'transfer_amount',
         'payment_note',
         'payment_token',
+        'nota_printed_at',
+        'nota_printed_by',
     ];
 
     protected function casts(): array
@@ -53,6 +55,7 @@ class Invoice extends Model
             'harga_asli' => 'decimal:2',
             'due_date' => 'date',
             'paid_at' => 'datetime',
+            'nota_printed_at' => 'datetime',
         ];
     }
 
@@ -74,6 +77,16 @@ class Invoice extends Model
     public function paidBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'paid_by');
+    }
+
+    public function notaPrintedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'nota_printed_by');
+    }
+
+    public function hasBeenNotaPrinted(): bool
+    {
+        return $this->nota_printed_at !== null;
     }
 
     public function payment(): BelongsTo

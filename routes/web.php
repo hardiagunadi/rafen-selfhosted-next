@@ -266,6 +266,7 @@ Route::middleware($tenantAppMiddleware)->group(function () use (
     });
     Route::get('invoices/datatable', [InvoiceController::class, 'datatable'])->name('invoices.datatable');
     Route::get('invoices/{invoice}/print', [InvoiceController::class, 'print'])->name('invoices.print');
+    Route::get('invoices/{invoice}/nota/confirm', [InvoiceController::class, 'notaConfirm'])->name('invoices.nota.confirm');
     Route::get('invoices/{invoice}/nota', [InvoiceController::class, 'nota'])->name('invoices.nota');
     Route::get('invoices/nota-bulk', [InvoiceController::class, 'notaBulk'])->name('invoices.nota-bulk');
     Route::get('invoices/belum-lunas', [InvoiceController::class, 'unpaidIndex'])->name('invoices.unpaid');

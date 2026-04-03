@@ -102,6 +102,17 @@
         @media print {
             .no-print { display: none; }
         }
+
+        .reprint-banner {
+            text-align: center;
+            font-weight: bold;
+            font-size: 11px;
+            color: #cc0000;
+            border: 1px solid #cc0000;
+            padding: 2px 4px;
+            margin-bottom: 4px;
+            letter-spacing: 1px;
+        }
     </style>
 @endverbatim
 </head>
@@ -126,11 +137,19 @@
 @endphp
 
 <div class="no-print">
+    @if($isReprint ?? false)
+        <div style="background:#fff3cd;border:1px solid #ffc107;padding:6px 10px;margin-bottom:6px;font-size:12px;">
+            &#9888; Nota ini sudah pernah dicetak sebelumnya (Cetak Ulang)
+        </div>
+    @endif
     <button onclick="window.print()">Print</button>
     <button onclick="window.close()">Tutup</button>
 </div>
 
 <div class="wrapper">
+    @if($isReprint ?? false)
+        <div class="reprint-banner">*** CETAK ULANG ***</div>
+    @endif
 
     {{-- HEADER --}}
     <div class="header">

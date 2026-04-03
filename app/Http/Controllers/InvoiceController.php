@@ -126,6 +126,8 @@ class InvoiceController extends Controller
                     'show_url' => route('invoices.show', $r->id),
                     'print_url' => route('invoices.print', $r->id),
                     'nota_url' => route('invoices.nota', $r->id),
+                    'is_nota_printed' => $r->nota_printed_at !== null,
+                    'nota_printed_at' => $r->nota_printed_at?->translatedFormat('d M Y H:i'),
                 ];
             }),
         ]);
@@ -352,10 +354,27 @@ class InvoiceController extends Controller
 
         $settings = $invoices->first()?->owner?->getSettings();
 
-        return view('invoices.nota-bulk', compact('invoices', 'settings'));
+        $alreadyPrintedCount = $invoices->filter(fn ($i) => $i->hasBeenNotaPrinted())->count();
+
+        foreach ($invoices as $invoice) {
+            if (! $invoice->hasBeenNotaPrinted()) {
+                $invoice->update([
+                    'nota_printed_at' => now(),
+                    'nota_printed_by' => $user->id,
+                ]);
+                $this->logActivity('nota_printed', 'Invoice', $invoice->id, $invoice->invoice_number, (int) $invoice->owner_id);
+            } else {
+                $this->logActivity('nota_reprinted', 'Invoice', $invoice->id, $invoice->invoice_number, (int) $invoice->owner_id, [
+                    'context' => 'bulk',
+                    'original_printed_at' => $invoice->nota_printed_at->toDateTimeString(),
+                ]);
+            }
+        }
+
+        return view('invoices.nota-bulk', compact('invoices', 'settings', 'alreadyPrintedCount'));
     }
 
-    public function nota(Invoice $invoice): View
+    public function nota(Invoice $invoice, Request $request): View|RedirectResponse
     {
         $user = auth()->user();
 
@@ -363,12 +382,48 @@ class InvoiceController extends Controller
             abort(403);
         }
 
+        $isReprint = $invoice->hasBeenNotaPrinted();
+
+        if ($isReprint && ! $request->boolean('confirm')) {
+            return redirect()->route('invoices.nota.confirm', $invoice->id);
+        }
+
         $invoice->load(['pppUser', 'owner', 'payment', 'paidBy']);
+
+        if (! $isReprint) {
+            $invoice->update([
+                'nota_printed_at' => now(),
+                'nota_printed_by' => $user->id,
+            ]);
+            $this->logActivity('nota_printed', 'Invoice', $invoice->id, $invoice->invoice_number, (int) $invoice->owner_id);
+        } else {
+            $this->logActivity('nota_reprinted', 'Invoice', $invoice->id, $invoice->invoice_number, (int) $invoice->owner_id, [
+                'original_printed_at' => $invoice->nota_printed_at->toDateTimeString(),
+                'original_printed_by' => $invoice->nota_printed_by,
+            ]);
+        }
 
         $bankAccounts = $invoice->owner?->bankAccounts()->active()->get() ?? collect();
         $settings = $invoice->owner?->getSettings();
 
-        return view('invoices.nota', compact('invoice', 'bankAccounts', 'settings'));
+        return view('invoices.nota', compact('invoice', 'bankAccounts', 'settings', 'isReprint'));
+    }
+
+    public function notaConfirm(Invoice $invoice): View|RedirectResponse
+    {
+        $user = auth()->user();
+
+        if (! $user->isSuperAdmin() && $invoice->owner_id !== $user->effectiveOwnerId()) {
+            abort(403);
+        }
+
+        if (! $invoice->hasBeenNotaPrinted()) {
+            return redirect()->route('invoices.nota', $invoice->id);
+        }
+
+        $invoice->load(['notaPrintedBy']);
+
+        return view('invoices.nota-confirm', compact('invoice'));
     }
 
     public function pay(Request $request, Invoice $invoice): JsonResponse|RedirectResponse

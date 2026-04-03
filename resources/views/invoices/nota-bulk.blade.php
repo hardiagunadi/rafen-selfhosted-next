@@ -109,6 +109,17 @@
 
         .no-print { margin-bottom: 10px; }
 
+        .reprint-banner {
+            text-align: center;
+            font-weight: bold;
+            font-size: 11px;
+            color: #cc0000;
+            border: 1px solid #cc0000;
+            padding: 2px 4px;
+            margin-bottom: 4px;
+            letter-spacing: 1px;
+        }
+
         @media print {
             .no-print { display: none; }
         }
@@ -118,6 +129,11 @@
 <body>
 
 <div class="no-print">
+    @if(($alreadyPrintedCount ?? 0) > 0)
+        <div style="background:#fff3cd;border:1px solid #ffc107;padding:8px 12px;margin-bottom:8px;font-size:13px;">
+            &#9888; <strong>{{ $alreadyPrintedCount }} dari {{ $invoices->count() }} nota</strong> sudah pernah dicetak sebelumnya dan akan ikut tercetak sebagai cetak ulang.
+        </div>
+    @endif
     <button onclick="window.print()">Print Semua ({{ $invoices->count() }} nota)</button>
     <button onclick="window.close()">Tutup</button>
 </div>
@@ -150,6 +166,9 @@
 
 <div class="nota-item">
 <div class="wrapper">
+    @if($invoice->hasBeenNotaPrinted())
+        <div class="reprint-banner">*** CETAK ULANG ***</div>
+    @endif
 
     {{-- HEADER --}}
     <div class="header">

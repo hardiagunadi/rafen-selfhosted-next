@@ -238,8 +238,12 @@
                 + ' title="Bayar"><i class="fas fa-credit-card"></i></button>';
         }
         var view = '<a href="' + row.show_url + '" class="btn btn-info btn-sm mr-1" title="Lihat Invoice"><i class="fas fa-eye"></i></a>';
+        var notaTitle = row.is_nota_printed
+            ? 'Cetak Nota (Sudah Dicetak: ' + row.nota_printed_at + ')'
+            : 'Cetak Nota';
+        var notaBtnClass = row.is_nota_printed ? 'btn-warning' : 'btn-secondary';
         var nota = row.can_nota
-            ? '<a href="' + row.nota_url + '" target="_blank" class="btn btn-secondary btn-sm mr-1" title="Cetak Nota"><i class="fas fa-receipt"></i></a>'
+            ? '<a href="' + row.nota_url + '" target="_blank" class="btn ' + notaBtnClass + ' btn-sm mr-1" title="' + notaTitle + '"><i class="fas fa-receipt"></i></a>'
             : '';
         var del = row.can_delete
             ? ('<button class="btn btn-danger btn-sm"'
