@@ -38,6 +38,7 @@
 /storage/framework/testing-machine-id
 /storage/logs/*
 !/storage/logs/.gitignore
+/storage/.pm2/
 
 # Package manager logs
 npm-debug.log*
