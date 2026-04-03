@@ -78,6 +78,10 @@ class SelfHostedInstallRegistrationService
         $this->writeEnvironmentValue('SELF_HOSTED_REGISTRY_TOKEN', $newToken);
         config()->set('services.self_hosted_registry.token', $newToken);
 
+        // Sync ke LICENSE_VENDOR_API_KEY agar tidak perlu mengisi manual.
+        $this->writeEnvironmentValue('LICENSE_VENDOR_API_KEY', $newToken);
+        config()->set('license.vendor_api_key', $newToken);
+
         return true;
     }
 
