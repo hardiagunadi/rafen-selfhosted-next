@@ -11,4 +11,6 @@ Route::middleware(['auth', SuperAdminMiddleware::class])
         Route::get('/settings/license', [SuperAdminLicenseController::class, 'index'])->name('settings.license');
         Route::post('/settings/license', [SuperAdminLicenseController::class, 'update'])->name('settings.license.update');
         Route::get('/settings/license/activation-request', [SuperAdminLicenseController::class, 'activationRequest'])->name('settings.license.activation-request');
+        Route::delete('/settings/license', [SuperAdminLicenseController::class, 'unregister'])->name('settings.license.unregister');
+        Route::post('/settings/license/upgrade-request', [SuperAdminLicenseController::class, 'upgradeRequest'])->name('settings.license.upgrade-request');
     });

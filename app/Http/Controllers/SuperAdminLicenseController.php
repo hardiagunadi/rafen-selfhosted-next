@@ -4,10 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\UploadSystemLicenseRequest;
 use App\Services\LicenseActivationRequestService;
+use App\Services\LicenseUnregisterService;
+use App\Services\LicenseUpgradeRequestService;
 use App\Services\ServerHealthService;
 use App\Services\SystemLicenseService;
 use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -52,6 +56,58 @@ class SuperAdminLicenseController extends Controller
 
         $payload = $activationRequestService->makePayload();
         $filename = 'rafen-activation-request-'.now()->format('Ymd-His').'.json';
+
+        return response()->streamDownload(function () use ($payload): void {
+            echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        }, $filename, [
+            'Content-Type' => 'application/json',
+        ]);
+    }
+
+    public function unregister(
+        Request $request,
+        LicenseUnregisterService $unregisterService,
+        SystemLicenseService $systemLicenseService,
+    ): RedirectResponse {
+        $this->ensureSelfHostedEnabled($systemLicenseService);
+
+        $reason = $request->input('reason');
+
+        try {
+            $unregisterService->unregister(is_string($reason) ? trim($reason) : null);
+        } catch (RuntimeException $e) {
+            return redirect()
+                ->route('super-admin.settings.license')
+                ->with('error', 'Unregister lisensi gagal: '.$e->getMessage());
+        }
+
+        return redirect()
+            ->route('super-admin.settings.license')
+            ->with('success', 'Lisensi berhasil di-unregister dan dihapus dari instance ini.');
+    }
+
+    public function upgradeRequest(
+        Request $request,
+        LicenseUpgradeRequestService $upgradeRequestService,
+        SystemLicenseService $systemLicenseService,
+    ): StreamedResponse {
+        $this->ensureSelfHostedEnabled($systemLicenseService);
+
+        $modules = $request->input('modules', []);
+        $limits = [
+            'max_mikrotik' => (int) $request->input('max_mikrotik', 0),
+            'max_ppp_users' => (int) $request->input('max_ppp_users', 0),
+            'max_vpn_peers' => (int) $request->input('max_vpn_peers', 0),
+        ];
+        $notes = $request->input('notes');
+
+        $payload = $upgradeRequestService->makePayload(
+            is_array($modules) ? $modules : [],
+            $limits,
+            is_string($notes) ? trim($notes) : null,
+        );
+
+        $filename = 'rafen-upgrade-request-'.now()->format('Ymd-His').'.json';
 
         return response()->streamDownload(function () use ($payload): void {
             echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);

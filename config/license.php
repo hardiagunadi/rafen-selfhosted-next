@@ -9,4 +9,12 @@ return [
     'path' => env('LICENSE_FILE_PATH', storage_path('app/license/rafen.lic')),
     'machine_id_path' => env('LICENSE_MACHINE_ID_PATH', '/etc/machine-id'),
     'default_grace_days' => (int) env('LICENSE_DEFAULT_GRACE_DAYS', 21),
+
+    // URL endpoint SaaS vendor untuk notifikasi unregister lisensi.
+    // Jika kosong, unregister hanya menghapus lokal (mode offline/air-gap).
+    'vendor_unregister_url' => env('LICENSE_VENDOR_UNREGISTER_URL'),
+
+    // API key (Bearer token) untuk otentikasi ke endpoint vendor_unregister_url.
+    // Biasanya berisi registry_token dari SaaS.
+    'vendor_api_key' => env('LICENSE_VENDOR_API_KEY'),
 ];
