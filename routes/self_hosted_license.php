@@ -16,6 +16,7 @@ Route::middleware(['auth', SuperAdminMiddleware::class])
         Route::post('/settings/license/upgrade-request', [SuperAdminLicenseController::class, 'upgradeRequest'])->name('settings.license.upgrade-request');
         Route::get('/settings/app-update', [SuperAdminAppUpdateController::class, 'index'])->name('settings.app-update');
         Route::post('/settings/app-update/check', [SuperAdminAppUpdateController::class, 'check'])->name('settings.app-update.check');
+        Route::post('/settings/app-update/check-and-heartbeat', [SuperAdminAppUpdateController::class, 'checkAndHeartbeat'])->name('settings.app-update.check-and-heartbeat');
         Route::post('/settings/app-update/preflight', [SuperAdminAppUpdateController::class, 'preflight'])->name('settings.app-update.preflight');
         Route::post('/settings/app-update/heartbeat', [SuperAdminAppUpdateController::class, 'heartbeat'])->name('settings.app-update.heartbeat');
     });

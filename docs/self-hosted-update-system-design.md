@@ -304,6 +304,8 @@ karena update aplikasi punya lifecycle sendiri dan butuh guardrail yang lebih ke
 - migration required / maintenance required
 - hasil preflight
 - tombol `Check Update`
+- tombol `Check Update + Heartbeat`
+- tombol `Send Heartbeat`
 - tombol `Apply Update`
 - tombol `Rollback`
 - histori update run

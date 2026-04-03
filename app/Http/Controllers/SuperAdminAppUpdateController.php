@@ -54,6 +54,34 @@ class SuperAdminAppUpdateController extends Controller
             ->with('success', $message);
     }
 
+    public function checkAndHeartbeat(
+        SelfHostedHeartbeatService $heartbeatService,
+        SelfHostedUpdateStatusService $updateStatusService,
+        SystemLicenseService $systemLicenseService,
+    ): RedirectResponse {
+        $this->ensureSelfHostedEnabled($systemLicenseService);
+
+        try {
+            $snapshot = $updateStatusService->check();
+        } catch (RuntimeException $exception) {
+            return redirect()
+                ->route('super-admin.settings.app-update')
+                ->with('error', $exception->getMessage());
+        }
+
+        try {
+            $heartbeatService->submit();
+        } catch (RuntimeException $exception) {
+            return redirect()
+                ->route('super-admin.settings.app-update')
+                ->with('error', $this->checkMessage($snapshot).' Heartbeat gagal dikirim: '.$exception->getMessage());
+        }
+
+        return redirect()
+            ->route('super-admin.settings.app-update')
+            ->with('success', $this->checkMessage($snapshot).' Heartbeat status instance berhasil dikirim ke SaaS.');
+    }
+
     public function preflight(
         SelfHostedHeartbeatService $heartbeatService,
         SelfHostedUpdateRunnerService $runnerService,
@@ -97,5 +125,15 @@ class SuperAdminAppUpdateController extends Controller
         if (! $systemLicenseService->isSelfHostedEnabled()) {
             throw new NotFoundHttpException;
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function checkMessage(array $snapshot): string
+    {
+        return ($snapshot['update_available'] ?? false)
+            ? 'Cek update selesai. Release baru tersedia untuk instance ini.'
+            : 'Cek update selesai. Instance ini sudah menggunakan release terbaru.';
     }
 }

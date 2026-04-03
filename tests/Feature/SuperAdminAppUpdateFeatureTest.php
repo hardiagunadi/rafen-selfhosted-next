@@ -65,6 +65,7 @@ it('shows the app update page to self hosted super admin', function () {
         ->assertSee('App Update')
         ->assertSee('Current Version')
         ->assertSee('SELF_HOSTED_UPDATE_MANIFEST_URL belum diisi.')
+        ->assertSee('Cek Update + Heartbeat')
         ->assertSee('Simulasi Apply')
         ->assertSee('Kirim Heartbeat Sekarang');
 });
@@ -127,6 +128,48 @@ it('checks update manifest from the app update page and stores update state', fu
         ->assertSee('SaaS Status ID')
         ->assertSee('42')
         ->assertSee('Heartbeat status instance berhasil dikirim ke SaaS.');
+});
+
+it('checks update and sends heartbeat explicitly from the app update page', function () {
+    $this->withoutMiddleware(ValidateCsrfToken::class);
+
+    $superAdmin = createSuperAdminForAppUpdate();
+
+    config()->set('services.self_hosted_update.manifest_url', 'https://updates.example.test/releases/stable.json');
+    config()->set('services.self_hosted_update.channel', 'stable');
+    config()->set('services.self_hosted_registry.url', 'https://saas.example.test/api/self-hosted/install-registrations');
+    config()->set('services.self_hosted_registry.token', 'registry-token-006');
+
+    Http::fake([
+        'https://updates.example.test/releases/stable.json' => Http::response([
+            'schema' => 'rafen-self-hosted-release:v1',
+            'channel' => 'stable',
+            'version' => '2026.04.04-main.1',
+            'tag' => 'v2026.04.04-main.1',
+            'commit' => 'bee6dfb',
+            'published_at' => '2026-04-04T09:00:00+07:00',
+            'release_notes_url' => 'https://example.test/releases/v2026.04.04-main.1',
+            'requires_maintenance' => true,
+            'requires_backup' => false,
+            'requires_migration' => false,
+        ], 200),
+        'https://saas.example.test/api/self-hosted/heartbeats' => Http::response([
+            'status_id' => 91,
+        ], 200),
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->post(route('super-admin.settings.app-update.check-and-heartbeat'))
+        ->assertRedirect(route('super-admin.settings.app-update'))
+        ->assertSessionHas('success', 'Cek update selesai. Release baru tersedia untuk instance ini. Heartbeat status instance berhasil dikirim ke SaaS.');
+
+    $state = SelfHostedUpdateState::query()->where('channel', 'stable')->first();
+
+    expect($state)
+        ->not->toBeNull()
+        ->and($state?->last_check_status)->toBe('ok')
+        ->and($state?->last_heartbeat_status)->toBe('success')
+        ->and($state?->last_heartbeat_status_id)->toBe(91);
 });
 
 it('runs dry run apply from the app update page and stores run history', function () {

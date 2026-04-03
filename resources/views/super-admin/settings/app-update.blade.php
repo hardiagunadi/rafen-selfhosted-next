@@ -43,6 +43,12 @@
                         <i class="fas fa-sync-alt mr-1"></i> Cek Update Sekarang
                     </button>
                 </form>
+                <form method="POST" action="{{ route('super-admin.settings.app-update.check-and-heartbeat') }}">
+                    @csrf
+                    <button type="submit" class="btn btn-outline-primary">
+                        <i class="fas fa-broadcast-tower mr-1"></i> Cek Update + Heartbeat
+                    </button>
+                </form>
                 <form method="POST" action="{{ route('super-admin.settings.app-update.preflight') }}">
                     @csrf
                     <button type="submit" class="btn btn-outline-info">
