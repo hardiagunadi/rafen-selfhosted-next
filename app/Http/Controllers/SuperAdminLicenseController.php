@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\SubmitLicenseUpgradeRequest;
 use App\Http\Requests\UploadSystemLicenseRequest;
 use App\Services\LicenseActivationRequestService;
 use App\Services\LicenseUnregisterService;
@@ -17,12 +18,15 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 class SuperAdminLicenseController extends Controller
 {
-    public function index(SystemLicenseService $systemLicenseService): View
-    {
+    public function index(
+        SystemLicenseService $systemLicenseService,
+        LicenseUpgradeRequestService $licenseUpgradeRequestService,
+    ): View {
         $this->ensureSelfHostedEnabled($systemLicenseService);
 
         return view('super-admin.settings.license', [
             'snapshot' => $systemLicenseService->getSnapshot(),
+            'upgradeRequestStatus' => $licenseUpgradeRequestService->statusSnapshot(),
         ]);
     }
 
@@ -87,33 +91,46 @@ class SuperAdminLicenseController extends Controller
     }
 
     public function upgradeRequest(
-        Request $request,
+        SubmitLicenseUpgradeRequest $request,
         LicenseUpgradeRequestService $upgradeRequestService,
         SystemLicenseService $systemLicenseService,
-    ): StreamedResponse {
+    ): RedirectResponse|StreamedResponse {
         $this->ensureSelfHostedEnabled($systemLicenseService);
 
-        $modules = $request->input('modules', []);
-        $limits = [
-            'max_mikrotik' => (int) $request->input('max_mikrotik', 0),
-            'max_ppp_users' => (int) $request->input('max_ppp_users', 0),
-            'max_vpn_peers' => (int) $request->input('max_vpn_peers', 0),
-        ];
-        $notes = $request->input('notes');
+        $modules = $request->modules();
+        $limits = $request->limits();
+        $notes = $request->notes();
 
-        $payload = $upgradeRequestService->makePayload(
-            is_array($modules) ? $modules : [],
-            $limits,
-            is_string($notes) ? trim($notes) : null,
-        );
+        if ($request->shouldDownload()) {
+            $payload = $upgradeRequestService->makePayload($modules, $limits, $notes);
+            $filename = 'rafen-upgrade-request-'.now()->format('Ymd-His').'.json';
 
-        $filename = 'rafen-upgrade-request-'.now()->format('Ymd-His').'.json';
+            return response()->streamDownload(function () use ($payload): void {
+                echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+            }, $filename, [
+                'Content-Type' => 'application/json',
+            ]);
+        }
 
-        return response()->streamDownload(function () use ($payload): void {
-            echo json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-        }, $filename, [
-            'Content-Type' => 'application/json',
-        ]);
+        try {
+            $result = $upgradeRequestService->submit($modules, $limits, $notes);
+        } catch (RuntimeException $exception) {
+            return redirect()
+                ->route('super-admin.settings.license')
+                ->with('error', $exception->getMessage());
+        }
+
+        $responsePayload = is_array($result['response']) ? $result['response'] : [];
+        $requestId = $responsePayload['request_id'] ?? null;
+        $message = 'Request upgrade lisensi berhasil dikirim ke SaaS.';
+
+        if (is_numeric($requestId) || (is_string($requestId) && $requestId !== '')) {
+            $message .= ' ID request: '.$requestId.'.';
+        }
+
+        return redirect()
+            ->route('super-admin.settings.license')
+            ->with('success', $message);
     }
 
     private function ensureSelfHostedEnabled(SystemLicenseService $systemLicenseService): void
@@ -135,8 +152,7 @@ class SuperAdminLicenseController extends Controller
         RedirectResponse $redirect,
         string $successMessage,
         array $summary
-    ): RedirectResponse
-    {
+    ): RedirectResponse {
         $message = $successMessage;
 
         if ($summary['started'] !== []) {

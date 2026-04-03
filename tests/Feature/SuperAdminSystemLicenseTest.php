@@ -7,6 +7,7 @@ use App\Services\ServerHealthService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 
 uses(RefreshDatabase::class);
@@ -186,6 +187,138 @@ it('returns not found for the removed self-hosted public key update endpoint', f
             'license_public_key' => $newPublicKey,
         ])
         ->assertNotFound();
+});
+
+it('submits license upgrade request directly to saas from the license page', function () {
+    $superAdmin = createSuperAdminForLicense();
+
+    config()->set('services.self_hosted_registry.url', 'https://saas.example.test/api/self-hosted/install-registrations');
+    config()->set('services.self_hosted_registry.token', 'registry-token-002');
+
+    Http::fake([
+        'https://saas.example.test/api/self-hosted/license-upgrade-requests' => Http::response([
+            'message' => 'Request upgrade lisensi self-hosted berhasil disimpan.',
+            'request_id' => 991,
+            'status' => 'pending',
+        ], 200),
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->post(route('super-admin.settings.license.upgrade-request'), [
+            'delivery_mode' => 'submit',
+            'modules' => ['core', 'radius', 'vpn'],
+            'max_mikrotik' => 10,
+            'max_ppp_users' => 500,
+            'max_vpn_peers' => -1,
+            'notes' => 'Butuh modul radius dan VPN untuk rollout baru.',
+        ])
+        ->assertRedirect(route('super-admin.settings.license'))
+        ->assertSessionHas('success', fn (string $message): bool => str_contains($message, 'ID request: 991'));
+
+    Http::assertSent(function ($request): bool {
+        $payload = $request->data();
+
+        return $request->url() === 'https://saas.example.test/api/self-hosted/license-upgrade-requests'
+            && $request->hasHeader('Authorization', 'Bearer registry-token-002')
+            && ($payload['type'] ?? null) === 'upgrade_request'
+            && ($payload['requested_upgrade']['modules'] ?? null) === ['core', 'radius', 'vpn']
+            && ($payload['requested_upgrade']['limits'] ?? null) === [
+                'max_mikrotik' => 10,
+                'max_ppp_users' => 500,
+                'max_vpn_peers' => -1,
+            ]
+            && ($payload['requested_upgrade']['notes'] ?? null) === 'Butuh modul radius dan VPN untuk rollout baru.'
+            && ($payload['fingerprint'] ?? null) === app(LicenseFingerprintService::class)->generate()
+            && ($payload['access_mode'] ?? null) === 'domain-based';
+    });
+});
+
+it('still allows downloading license upgrade request json manually', function () {
+    $superAdmin = createSuperAdminForLicense();
+
+    $response = $this->actingAs($superAdmin)
+        ->post(route('super-admin.settings.license.upgrade-request'), [
+            'delivery_mode' => 'download',
+            'modules' => ['core', 'wa'],
+            'max_mikrotik' => 3,
+            'max_ppp_users' => 200,
+            'max_vpn_peers' => 0,
+            'notes' => 'Fallback manual request.',
+        ]);
+
+    $response->assertSuccessful()
+        ->assertHeader('content-type', 'application/json');
+
+    $payload = json_decode($response->streamedContent(), true, flags: JSON_THROW_ON_ERROR);
+
+    expect($payload['type'])->toBe('upgrade_request')
+        ->and($payload['requested_upgrade']['modules'])->toBe(['core', 'wa'])
+        ->and($payload['requested_upgrade']['limits'])->toBe([
+            'max_mikrotik' => 3,
+            'max_ppp_users' => 200,
+            'max_vpn_peers' => 0,
+        ])
+        ->and($payload['requested_upgrade']['notes'])->toBe('Fallback manual request.');
+});
+
+it('shows latest license upgrade request status from saas on the license page', function () {
+    $superAdmin = createSuperAdminForLicense();
+
+    config()->set('services.self_hosted_registry.url', 'https://saas.example.test/api/self-hosted/install-registrations');
+    config()->set('services.self_hosted_registry.token', 'registry-token-002');
+
+    Http::fake([
+        'https://saas.example.test/api/self-hosted/license-upgrade-requests/status*' => Http::response([
+            'latest_request' => [
+                'id' => 991,
+                'status' => 'fulfilled',
+                'status_label' => 'Sudah Dipenuhi',
+                'requested_modules' => ['core', 'radius', 'vpn'],
+                'requested_limits' => [
+                    'max_mikrotik' => 10,
+                    'max_ppp_users' => 500,
+                ],
+                'quoted_price_label' => 'IDR 1.750.000',
+                'billing_notes' => 'Harga khusus rollout enterprise tahap awal.',
+                'requested_at' => now()->subDay()->toIso8601String(),
+                'requested_at_human' => now()->subDay()->format('d M Y H:i'),
+                'fulfilled_at' => now()->subHour()->toIso8601String(),
+                'fulfilled_at_human' => now()->subHour()->format('d M Y H:i'),
+            ],
+            'recent_requests' => [
+                [
+                    'id' => 991,
+                    'status' => 'fulfilled',
+                    'status_label' => 'Sudah Dipenuhi',
+                    'quoted_price_label' => 'IDR 1.750.000',
+                    'requested_at_human' => now()->subDay()->format('d M Y H:i'),
+                ],
+                [
+                    'id' => 990,
+                    'status' => 'pending',
+                    'status_label' => 'Menunggu Review',
+                    'quoted_price_label' => null,
+                    'requested_at_human' => now()->subDays(2)->format('d M Y H:i'),
+                ],
+            ],
+        ], 200),
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->get(route('super-admin.settings.license'))
+        ->assertSuccessful()
+        ->assertSee('Status Request Upgrade')
+        ->assertSee('Sudah Dipenuhi')
+        ->assertSee('IDR 1.750.000')
+        ->assertSee('Harga khusus rollout enterprise tahap awal.')
+        ->assertSee('Riwayat singkat')
+        ->assertSee('Menunggu Review');
+
+    Http::assertSent(function ($request): bool {
+        return str_starts_with($request->url(), 'https://saas.example.test/api/self-hosted/license-upgrade-requests/status')
+            && $request->hasHeader('Authorization', 'Bearer registry-token-002')
+            && str_contains($request->url(), 'fingerprint='.urlencode(app(LicenseFingerprintService::class)->generate()));
+    });
 });
 
 it('keeps saas dashboard accessible when system license table is not migrated', function () {

@@ -5,6 +5,13 @@
 @section('content')
 @php
     $license = $snapshot['license'];
+    $upgradeStatus = $upgradeRequestStatus ?? [
+        'is_available' => false,
+        'is_configured' => false,
+        'message' => null,
+        'latest_request' => null,
+        'recent_requests' => [],
+    ];
     $statusClass = match ($license->status) {
         'active' => 'success',
         'grace' => 'warning',
@@ -115,6 +122,91 @@
                     <button type="button" class="btn btn-outline-info mt-3 ml-2" data-toggle="modal" data-target="#upgradeRequestModal">
                         <i class="fas fa-arrow-up mr-1"></i> Request Upgrade Lisensi
                     </button>
+                </div>
+            </div>
+
+            <div class="card mt-3">
+                <div class="card-header"><i class="fas fa-history mr-1"></i> Status Request Upgrade</div>
+                <div class="card-body">
+                    @if($upgradeStatus['latest_request'])
+                        @php
+                            $latestUpgradeRequest = $upgradeStatus['latest_request'];
+                            $latestUpgradeStatusClass = match ($latestUpgradeRequest['status'] ?? null) {
+                                'fulfilled' => 'success',
+                                'pending' => 'warning',
+                                default => 'secondary',
+                            };
+                        @endphp
+                        <div class="d-flex flex-wrap align-items-center mb-3" style="gap:.5rem;">
+                            <span class="badge badge-{{ $latestUpgradeStatusClass }} px-3 py-2">{{ $latestUpgradeRequest['status_label'] ?? ucfirst((string) ($latestUpgradeRequest['status'] ?? '-')) }}</span>
+                            @if(! empty($latestUpgradeRequest['requested_at_human']))
+                                <span class="text-muted small">Request terakhir: {{ $latestUpgradeRequest['requested_at_human'] }}</span>
+                            @endif
+                            @if(! empty($latestUpgradeRequest['fulfilled_at_human']))
+                                <span class="text-muted small">Dipenuhi: {{ $latestUpgradeRequest['fulfilled_at_human'] }}</span>
+                            @endif
+                        </div>
+
+                        <table class="table table-sm mb-3">
+                            <tbody>
+                                <tr>
+                                    <th class="w-25">Modul Diminta</th>
+                                    <td>{{ ! empty($latestUpgradeRequest['requested_modules']) ? implode(', ', $latestUpgradeRequest['requested_modules']) : '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Limit Diminta</th>
+                                    <td>
+                                        @if(! empty($latestUpgradeRequest['requested_limits']))
+                                            @foreach($latestUpgradeRequest['requested_limits'] as $limitKey => $limitValue)
+                                                <div><code>{{ $limitKey }}</code>: {{ $limitValue }}</div>
+                                            @endforeach
+                                        @else
+                                            -
+                                        @endif
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <th>Quote</th>
+                                    <td>{{ $latestUpgradeRequest['quoted_price_label'] ?? '-' }}</td>
+                                </tr>
+                                <tr>
+                                    <th>Catatan</th>
+                                    <td>{{ $latestUpgradeRequest['billing_notes'] ?? $latestUpgradeRequest['notes'] ?? '-' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+
+                        @if(count($upgradeStatus['recent_requests']) > 1)
+                            <div class="border-top pt-3">
+                                <div class="small text-muted mb-2">Riwayat singkat</div>
+                                <div class="list-group list-group-flush">
+                                    @foreach($upgradeStatus['recent_requests'] as $historyItem)
+                                        <div class="list-group-item px-0">
+                                            <div class="d-flex justify-content-between align-items-start" style="gap:1rem;">
+                                                <div>
+                                                    <div class="font-weight-semibold">{{ $historyItem['status_label'] ?? ucfirst((string) ($historyItem['status'] ?? '-')) }}</div>
+                                                    <div class="small text-muted">{{ $historyItem['requested_at_human'] ?? '-' }}</div>
+                                                </div>
+                                                @if(! empty($historyItem['quoted_price_label']))
+                                                    <span class="badge badge-light border">{{ $historyItem['quoted_price_label'] }}</span>
+                                                @endif
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            </div>
+                        @endif
+                    @elseif($upgradeStatus['is_configured'])
+                        <p class="text-muted mb-2">Belum ada request upgrade yang tercatat di SaaS untuk fingerprint ini.</p>
+                    @else
+                        <p class="text-muted mb-2">Status online belum aktif untuk instance ini.</p>
+                    @endif
+
+                    @if($upgradeStatus['message'])
+                        <div class="alert alert-light border mt-3 mb-0">
+                            <i class="fas fa-info-circle mr-1"></i> {{ $upgradeStatus['message'] }}
+                        </div>
+                    @endif
                 </div>
             </div>
 
@@ -243,14 +335,14 @@
             <form method="POST" action="{{ route('super-admin.settings.license.upgrade-request') }}">
                 @csrf
                 <div class="modal-body">
-                    <p class="text-muted">Pilih modul dan limit yang diinginkan. File JSON yang di-generate dikirim ke vendor untuk penerbitan lisensi baru.</p>
+                    <p class="text-muted">Pilih modul dan limit yang diinginkan. Tombol utama akan langsung mengirim request upgrade ke SaaS menggunakan token registry instance ini. Jika perlu, Anda tetap bisa mengunduh JSON manual sebagai fallback.</p>
 
                     <div class="form-group">
                         <label><strong>Modul yang Diminta</strong></label>
                         <div class="row">
                             @php
                                 $allModules = ['core', 'mikrotik', 'radius', 'vpn', 'wa', 'olt', 'genieacs'];
-                                $activeModules = $license->modules ?? [];
+                                $activeModules = old('modules', $license->modules ?? []);
                             @endphp
                             @foreach($allModules as $mod)
                             <div class="col-6 col-md-4">
@@ -263,6 +355,8 @@
                             </div>
                             @endforeach
                         </div>
+                        @error('modules')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
+                        @error('modules.*')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
                     </div>
 
                     <div class="form-group">
@@ -276,21 +370,24 @@
                                 <div class="form-group mb-2">
                                     <label for="maxMikrotik" class="small">Max Mikrotik</label>
                                     <input type="number" class="form-control form-control-sm" id="maxMikrotik"
-                                        name="max_mikrotik" value="{{ $currentLimits['max_mikrotik'] ?? 0 }}" min="-1">
+                                        name="max_mikrotik" value="{{ old('max_mikrotik', $currentLimits['max_mikrotik'] ?? 0) }}" min="-1">
+                                    @error('max_mikrotik')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="form-group mb-2">
                                     <label for="maxPppUsers" class="small">Max PPP Users</label>
                                     <input type="number" class="form-control form-control-sm" id="maxPppUsers"
-                                        name="max_ppp_users" value="{{ $currentLimits['max_ppp_users'] ?? 0 }}" min="-1">
+                                        name="max_ppp_users" value="{{ old('max_ppp_users', $currentLimits['max_ppp_users'] ?? 0) }}" min="-1">
+                                    @error('max_ppp_users')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
                                 </div>
                             </div>
                             <div class="col-md-4">
                                 <div class="form-group mb-2">
                                     <label for="maxVpnPeers" class="small">Max VPN Peers</label>
                                     <input type="number" class="form-control form-control-sm" id="maxVpnPeers"
-                                        name="max_vpn_peers" value="{{ $currentLimits['max_vpn_peers'] ?? 0 }}" min="-1">
+                                        name="max_vpn_peers" value="{{ old('max_vpn_peers', $currentLimits['max_vpn_peers'] ?? 0) }}" min="-1">
+                                    @error('max_vpn_peers')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
                                 </div>
                             </div>
                         </div>
@@ -299,13 +396,17 @@
                     <div class="form-group mb-0">
                         <label for="upgradeNotes">Catatan ke Vendor <small class="text-muted">(opsional)</small></label>
                         <textarea name="notes" id="upgradeNotes" class="form-control" rows="2"
-                            placeholder="Contoh: Butuh tambah modul radius dan VPN untuk layanan enterprise baru..."></textarea>
+                            placeholder="Contoh: Butuh tambah modul radius dan VPN untuk layanan enterprise baru...">{{ old('notes') }}</textarea>
+                        @error('notes')<div class="text-danger small mt-1">{{ $message }}</div>@enderror
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
-                    <button type="submit" class="btn btn-info">
-                        <i class="fas fa-download mr-1"></i> Download Upgrade Request
+                    <button type="submit" name="delivery_mode" value="download" class="btn btn-outline-secondary">
+                        <i class="fas fa-download mr-1"></i> Unduh JSON Manual
+                    </button>
+                    <button type="submit" name="delivery_mode" value="submit" class="btn btn-info">
+                        <i class="fas fa-paper-plane mr-1"></i> Kirim ke SaaS
                     </button>
                 </div>
             </form>
@@ -322,5 +423,13 @@ document.getElementById('licenseFileInput')?.addEventListener('change', function
         label.textContent = fileName;
     }
 });
+
+@if($errors->has('delivery_mode') || $errors->has('modules') || $errors->has('modules.*') || $errors->has('max_mikrotik') || $errors->has('max_ppp_users') || $errors->has('max_vpn_peers') || $errors->has('notes'))
+if (window.jQuery) {
+    window.jQuery(function () {
+        window.jQuery('#upgradeRequestModal').modal('show');
+    });
+}
+@endif
 </script>
 @endpush
