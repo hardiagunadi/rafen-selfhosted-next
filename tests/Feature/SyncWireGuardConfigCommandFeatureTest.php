@@ -26,7 +26,7 @@ it('ships installer bootstrap that persists wireguard keys and applies the gener
     expect($installerSource)
         ->toContain('set_env WG_SERVER_PRIVATE_KEY "$private_key_value"')
         ->toContain('set_env WG_SERVER_PUBLIC_KEY "$public_key_value"')
-        ->toContain('set_env WG_APPLY_COMMAND "$WG_SYNC_HELPER_PATH"')
+        ->toContain('set_env WG_APPLY_COMMAND "sudo -n $WG_SYNC_HELPER_PATH"')
         ->toContain('apply_wireguard_runtime_config')
         ->toContain('run_command "$WG_SYNC_HELPER_PATH"');
 });
@@ -73,4 +73,14 @@ it('ships a portable wireguard apply helper script', function () {
         ->toContain('WG_SYSTEM_INTERFACE="${WG_SYSTEM_INTERFACE:-wg0}"')
         ->toContain('SYSTEM_SERVICE="${WG_SYSTEM_SERVICE:-wg-quick@wg0}"')
         ->not->toContain('/var/www/rafen-selfhosted-next/storage/app/wireguard/wg0.conf');
+});
+
+it('ships wireguard sudoers for both app and deploy users', function () {
+    $installerSource = file_get_contents(base_path('install-selfhosted.sh'));
+
+    expect($installerSource)
+        ->toContain('Defaults:${APP_USER} !requiretty')
+        ->toContain('${APP_USER} ALL=(root) NOPASSWD: $WG_SYNC_HELPER_PATH')
+        ->toContain('Defaults:${DEPLOY_USER} !requiretty')
+        ->toContain('${DEPLOY_USER} ALL=(root) NOPASSWD: $WG_SYNC_HELPER_PATH');
 });

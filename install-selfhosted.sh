@@ -1369,7 +1369,7 @@ configure_environment() {
         if [ "$ALLOW_NON_ROOT" = "1" ]; then
             set_env WG_APPLY_COMMAND "$WG_SYNC_HELPER_PATH"
         else
-            set_env WG_APPLY_COMMAND "sudo $WG_SYNC_HELPER_PATH"
+            set_env WG_APPLY_COMMAND "sudo -n $WG_SYNC_HELPER_PATH"
         fi
     fi
 
@@ -1854,7 +1854,7 @@ touch $(shell_quote "$log_file") && \
 pm2 delete wa-multi-session >/dev/null 2>&1 || true && \
 pm2 start gateway-server.cjs --name wa-multi-session --time --cwd $(shell_quote "$wa_path") --output $(shell_quote "$log_file") --error $(shell_quote "$log_file") && \
 sleep 3 && \
-pm2 jlist | node -e 'const fs = require(\"fs\"); const list = JSON.parse(fs.readFileSync(0, \"utf8\") || \"[]\"); const proc = list.find((item) => item && item.name === \"wa-multi-session\"); const status = proc && proc.pm2_env ? String(proc.pm2_env.status || \"\") : \"\"; if (status !== \"online\") { console.error(`wa-multi-session gagal online via PM2 (status: ${status || \"missing\"}).`); process.exit(1); }' && \
+pm2 jlist | node -e 'const fs = require(\"fs\"); const list = JSON.parse(fs.readFileSync(0, \"utf8\") || \"[]\"); const proc = list.find((item) => item && item.name === \"wa-multi-session\"); const status = proc && proc.pm2_env ? String(proc.pm2_env.status || \"\") : \"\"; if (status !== \"online\") { console.error(\"wa-multi-session gagal online via PM2 (status: \" + (status || \"missing\") + \").\"); process.exit(1); }' && \
 pm2 save && \
 pm2 kill"
 
@@ -2643,15 +2643,22 @@ write_wireguard_sudoers() {
         return
     fi
 
-    local sudoers_content
-    sudoers_content="$APP_USER ALL=(root) NOPASSWD: $WG_SYNC_HELPER_PATH"
+    local sudoers_lines
+    sudoers_lines="Defaults:${APP_USER} !requiretty
+${APP_USER} ALL=(root) NOPASSWD: $WG_SYNC_HELPER_PATH"
+
+    if user_exists "$DEPLOY_USER" && [ "$DEPLOY_USER" != "$APP_USER" ]; then
+        sudoers_lines="${sudoers_lines}
+Defaults:${DEPLOY_USER} !requiretty
+${DEPLOY_USER} ALL=(root) NOPASSWD: $WG_SYNC_HELPER_PATH"
+    fi
 
     if [ "$DRY_RUN" = "1" ]; then
-        printf '[DRY-RUN] write sudoers %s => %s\n' "$WG_SUDOERS_PATH" "$sudoers_content"
+        printf '[DRY-RUN] write sudoers %s => %s\n' "$WG_SUDOERS_PATH" "$sudoers_lines"
         return 0
     fi
 
-    printf '%s\n' "$sudoers_content" >"$WG_SUDOERS_PATH"
+    printf '%s\n' "$sudoers_lines" >"$WG_SUDOERS_PATH"
     chmod 0440 "$WG_SUDOERS_PATH"
 
     if command_exists "$VISUDO_BIN"; then
