@@ -15,11 +15,12 @@ class SelfHostedTenantRegistryService
         $fingerprint = trim((string) ($payload['fingerprint'] ?? ''));
         $tenant = $this->findByFingerprint($fingerprint);
         $defaultName = $this->defaultInstallName($payload);
+        $adminEmail = $this->normalizedString($payload['admin_email'] ?? null);
 
         if (! $tenant) {
             $tenant = User::create([
                 'name' => $defaultName,
-                'email' => $this->generatedEmail($fingerprint),
+                'email' => $this->resolvedInstallEmail($fingerprint, $adminEmail),
                 'password' => Hash::make(Str::random(40)),
                 'company_name' => (string) ($payload['app_name'] ?? 'Rafen Self-Hosted'),
                 'role' => 'administrator',
@@ -37,6 +38,7 @@ class SelfHostedTenantRegistryService
         } else {
             $tenant->update([
                 'name' => $tenant->name ?: $defaultName,
+                'email' => $this->resolvedInstallEmail($fingerprint, $adminEmail, $tenant),
                 'company_name' => $tenant->company_name ?: (string) ($payload['app_name'] ?? 'Rafen Self-Hosted'),
                 'is_self_hosted_instance' => true,
                 'subscription_method' => User::SUBSCRIPTION_METHOD_LICENSE,
@@ -53,7 +55,7 @@ class SelfHostedTenantRegistryService
 
         $settings->update([
             'business_name' => $settings->business_name ?: $tenant->company_name ?: $tenant->name,
-            'business_email' => $settings->business_email ?: $this->normalizedString($payload['admin_email'] ?? null) ?: $tenant->email,
+            'business_email' => $settings->business_email ?: $adminEmail ?: $tenant->email,
             'admin_subdomain' => $settings->admin_subdomain ?: $subdomain,
             'portal_slug' => $settings->portal_slug ?: $subdomain,
         ]);
@@ -150,6 +152,23 @@ class SelfHostedTenantRegistryService
     private function generatedSubdomain(string $fingerprint): string
     {
         return 'sh-'.substr(sha1($fingerprint), 0, 12);
+    }
+
+    private function resolvedInstallEmail(string $fingerprint, ?string $adminEmail, ?User $tenant = null): string
+    {
+        if ($adminEmail !== null && $this->emailAvailableForTenant($adminEmail, $tenant)) {
+            return $adminEmail;
+        }
+
+        return $tenant?->email ?: $this->generatedEmail($fingerprint);
+    }
+
+    private function emailAvailableForTenant(string $email, ?User $tenant = null): bool
+    {
+        return ! User::query()
+            ->where('email', $email)
+            ->when($tenant !== null, fn ($query) => $query->whereKeyNot($tenant->getKey()))
+            ->exists();
     }
 
     private function resolvePlanId(?string $presetKey): ?int

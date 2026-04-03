@@ -45,6 +45,7 @@ it('registers a self hosted install into saas tenant registry', function () {
         ->and($tenant->isSelfHostedInstance())->toBeTrue()
         ->and($tenant->subscription_method)->toBe(User::SUBSCRIPTION_METHOD_LICENSE)
         ->and($tenant->subscription_status)->toBe('suspended')
+        ->and($tenant->email)->toBe('install@example.test')
         ->and($tenant->self_hosted_instance_name)->toBe('edge-jakarta')
         ->and($tenant->self_hosted_app_url)->toBe('https://edge.example.test');
 });
@@ -79,8 +80,36 @@ it('updates the existing self hosted registry tenant when the same fingerprint r
 
     expect(User::query()->where('self_hosted_fingerprint', $payload['fingerprint'])->count())->toBe(1)
         ->and($tenant)->not->toBeNull()
+        ->and($tenant->email)->toBe('updated@example.test')
         ->and($tenant->self_hosted_instance_name)->toBe('edge-surabaya')
         ->and($tenant->self_hosted_app_url)->toBe('http://10.10.10.2');
+});
+
+it('falls back to generated email when admin email is already used by another account', function () {
+    User::query()->create([
+        'name' => 'Existing Account',
+        'email' => 'used@example.test',
+        'password' => bcrypt('secret-123'),
+        'role' => 'administrator',
+        'is_super_admin' => false,
+    ]);
+
+    $payload = [
+        'app_name' => 'Rafen Self-Hosted',
+        'app_url' => 'https://edge-conflict.example.test',
+        'fingerprint' => 'sha256:'.str_repeat('d', 64),
+        'admin_name' => 'Conflict Admin',
+        'admin_email' => 'used@example.test',
+    ];
+
+    $this->withHeader('Authorization', 'Bearer registry-token-001')
+        ->postJson(route('api.self-hosted.install-registrations'), $payload)
+        ->assertSuccessful();
+
+    $tenant = User::query()->where('self_hosted_fingerprint', $payload['fingerprint'])->first();
+
+    expect($tenant)->not->toBeNull()
+        ->and($tenant->email)->toBe('selfhosted+'.substr(sha1($payload['fingerprint']), 0, 12).'@tenant.rafen.local');
 });
 
 it('rejects self hosted install registration when bearer token is invalid', function () {
