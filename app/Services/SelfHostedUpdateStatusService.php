@@ -147,6 +147,28 @@ class SelfHostedUpdateStatusService
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function refreshLocalSnapshot(): array
+    {
+        if (! $this->isStorageReady()) {
+            return $this->snapshot();
+        }
+
+        $state = SelfHostedUpdateState::query()->firstOrNew([
+            'channel' => $this->channel(),
+        ]);
+
+        $state->fill([
+            'current_version' => $this->currentVersion(),
+            'current_commit' => $this->currentCommit(),
+            'current_ref' => $this->currentRef(),
+        ])->save();
+
+        return $this->snapshot();
+    }
+
+    /**
      * @param  array<string, mixed>|null  $response
      */
     public function recordHeartbeat(

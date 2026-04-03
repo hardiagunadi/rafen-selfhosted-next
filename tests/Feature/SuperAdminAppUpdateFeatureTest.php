@@ -65,9 +65,39 @@ it('shows the app update page to self hosted super admin', function () {
         ->assertSee('App Update')
         ->assertSee('Current Version')
         ->assertSee('SELF_HOSTED_UPDATE_MANIFEST_URL belum diisi.')
+        ->assertSee('Refresh Status')
         ->assertSee('Cek Update + Heartbeat')
         ->assertSee('Simulasi Apply')
         ->assertSee('Kirim Heartbeat Sekarang');
+});
+
+it('refreshes local snapshot without any network calls', function () {
+    $this->withoutMiddleware(ValidateCsrfToken::class);
+
+    $superAdmin = createSuperAdminForAppUpdate();
+
+    SelfHostedUpdateState::query()->create([
+        'channel' => 'stable',
+        'current_version' => 'old-version',
+        'current_commit' => 'oldcommit',
+        'last_check_status' => 'never',
+    ]);
+
+    Http::fake();
+
+    $this->actingAs($superAdmin)
+        ->post(route('super-admin.settings.app-update.refresh-status'))
+        ->assertRedirect(route('super-admin.settings.app-update'))
+        ->assertSessionHas('success', 'Snapshot status lokal berhasil disegarkan tanpa panggilan network.');
+
+    $state = SelfHostedUpdateState::query()->where('channel', 'stable')->first();
+
+    expect($state)
+        ->not->toBeNull()
+        ->and($state?->current_version)->toBe('2026.04.01-main.1')
+        ->and($state?->current_commit)->toBe('abc1234');
+
+    Http::assertNothingSent();
 });
 
 it('checks update manifest from the app update page and stores update state', function () {

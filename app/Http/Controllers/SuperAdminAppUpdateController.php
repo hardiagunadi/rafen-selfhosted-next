@@ -54,6 +54,19 @@ class SuperAdminAppUpdateController extends Controller
             ->with('success', $message);
     }
 
+    public function refreshStatus(
+        SelfHostedUpdateStatusService $updateStatusService,
+        SystemLicenseService $systemLicenseService,
+    ): RedirectResponse {
+        $this->ensureSelfHostedEnabled($systemLicenseService);
+
+        $updateStatusService->refreshLocalSnapshot();
+
+        return redirect()
+            ->route('super-admin.settings.app-update')
+            ->with('success', 'Snapshot status lokal berhasil disegarkan tanpa panggilan network.');
+    }
+
     public function checkAndHeartbeat(
         SelfHostedHeartbeatService $heartbeatService,
         SelfHostedUpdateStatusService $updateStatusService,

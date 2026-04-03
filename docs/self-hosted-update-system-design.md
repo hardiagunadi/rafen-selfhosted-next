@@ -306,6 +306,7 @@ karena update aplikasi punya lifecycle sendiri dan butuh guardrail yang lebih ke
 - tombol `Check Update`
 - tombol `Check Update + Heartbeat`
 - tombol `Send Heartbeat`
+- tombol `Refresh Status` untuk menyegarkan snapshot lokal tanpa network call
 - tombol `Apply Update`
 - tombol `Rollback`
 - histori update run

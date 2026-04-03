@@ -37,6 +37,12 @@
         </div>
         <div class="col-auto">
             <div class="d-flex flex-wrap justify-content-end" style="gap:.5rem;">
+                <form method="POST" action="{{ route('super-admin.settings.app-update.refresh-status') }}">
+                    @csrf
+                    <button type="submit" class="btn btn-outline-dark">
+                        <i class="fas fa-redo-alt mr-1"></i> Refresh Status
+                    </button>
+                </form>
                 <form method="POST" action="{{ route('super-admin.settings.app-update.check') }}">
                     @csrf
                     <button type="submit" class="btn btn-primary">
