@@ -47,7 +47,7 @@ bash install-selfhosted.sh install \
   --admin-password 'password-kuat'
 ```
 
-Kalau installer ingin langsung sinkron ke SaaS saat install-time:
+Kalau installer ingin langsung sinkron ke SaaS saat install-time, format CLI terbaru yang direkomendasikan adalah:
 
 ```bash
 bash install-selfhosted.sh install \
@@ -60,6 +60,12 @@ bash install-selfhosted.sh install \
   --admin-phone '081234567890' \
   --admin-password 'password-kuat'
 ```
+
+Catatan sinkronisasi install-time:
+- `--registry-url` dan `--registry-token` mengaktifkan registrasi install-time ke SaaS
+- `--admin-phone` tetap didukung di CLI dan ikut dikirim dalam payload registrasi
+- installer akan mengirim metadata tambahan otomatis: `app_name`, `app_url`, `app_env`, `generated_at`, `server_name`, `fingerprint`, `current_license_status`, `current_license_id`, dan `access_mode`
+- bila respons SaaS mengembalikan `registry_token` baru, token itu akan disimpan otomatis ke `.env` sebagai token instance ini
 
 Jika `--domain` tidak diisi, installer akan fallback ke IP utama server untuk `APP_URL` dan konfigurasi Nginx.
 
@@ -118,11 +124,11 @@ Jika repository tambahan tetap tidak menyediakan `php8.4`, installer akan berhen
 - `--domain <host>`: set domain/host publik
 - `--app-url <url>`: override `APP_URL` penuh
 - `--license-public-key <key>`: public key verifikasi lisensi, wajib diisi
-- `--registry-url <url>`: endpoint API registrasi install-time ke SaaS
-- `--registry-token <token>`: bearer token untuk registrasi install-time ke SaaS
+- `--registry-url <url>`: endpoint API registrasi install-time ke SaaS, biasanya `/api/self-hosted/install-registrations`
+- `--registry-token <token>`: bearer token bootstrap untuk registrasi install-time ke SaaS
 - `--admin-name <name>`: nama super admin awal
 - `--admin-email <email>`: email super admin awal
-- `--admin-phone <phone>`: nomor WhatsApp super admin awal
+- `--admin-phone <phone>`: nomor WhatsApp super admin awal, juga ikut dikirim saat sinkronisasi install-time ke SaaS
 - `--admin-password <value>`: password super admin awal
 - `--db-connection <driver>`: koneksi database, `sqlite` atau `mysql`
 - `--db-host <host>`: host database untuk mode non-sqlite
@@ -165,6 +171,11 @@ Perilaku token saat ini:
 - setelah registrasi sukses, SaaS mengembalikan `registry_token` khusus instance
 - self-hosted installer/command akan menyimpan token baru itu otomatis ke `.env`
 - setelah tenant punya token per-instance, endpoint SaaS hanya menerima token milik tenant tersebut untuk fingerprint yang sama
+
+Payload yang dikirim self-hosted saat registrasi install-time saat ini mencakup:
+- `app_name`, `app_url`, `app_env`, `generated_at`, `server_name`
+- `fingerprint`, `current_license_status`, `current_license_id`, `access_mode`
+- `admin_name`, `admin_email`, `admin_phone`
 
 Artinya, generator token global di halaman `Public Key Lisensi` SaaS dipakai untuk bootstrap install baru, sedangkan rotasi token harian per tenant dilakukan dari halaman detail tenant self-hosted di SaaS.
 
