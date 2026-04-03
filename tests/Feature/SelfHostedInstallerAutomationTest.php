@@ -36,6 +36,8 @@ it('ships self-hosted installer automation for single MariaDB and radius bootstr
         ->toContain('create_radius_schema_if_missing')
         ->toContain('render_freeradius_sql_module "$fr_dir/mods-available/sql"')
         ->toContain('ensure_wa_gateway_dist_artifacts "$wa_path"')
+        ->toContain('if [ ! -f "$wa_path/package.json" ] || [ ! -f "$gateway_script" ]; then')
+        ->toContain('if [ ! -f "$wa_dist_entry" ]; then')
         ->toContain('Artifact wa-multi-session/dist belum ada. Mengambil runtime package ${npm_spec} dari npm.')
         ->toContain('npm pack $(shell_quote "$npm_spec") >/dev/null')
         ->toContain('pm2 jlist | node -e')

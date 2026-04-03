@@ -25,6 +25,9 @@ return [
     // Absolute path to wg0.conf
     'config_path' => env('WG_CONFIG_PATH', '/etc/wireguard/wg0.conf'),
 
+    // Helper/command to apply the generated app config into the system service
+    'apply_command' => env('WG_APPLY_COMMAND', ''),
+
     // IP pool for auto-allocation to peers (server uses .1, peers start at .2)
     'pool_start' => env('WG_POOL_START', '10.0.0.2'),
     'pool_end'   => env('WG_POOL_END',   '10.0.0.254'),

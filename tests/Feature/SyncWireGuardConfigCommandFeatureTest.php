@@ -26,6 +26,7 @@ it('ships installer bootstrap that persists wireguard keys and applies the gener
     expect($installerSource)
         ->toContain('set_env WG_SERVER_PRIVATE_KEY "$private_key_value"')
         ->toContain('set_env WG_SERVER_PUBLIC_KEY "$public_key_value"')
+        ->toContain('set_env WG_APPLY_COMMAND "$WG_SYNC_HELPER_PATH"')
         ->toContain('apply_wireguard_runtime_config')
         ->toContain('run_command "$WG_SYNC_HELPER_PATH"');
 });
@@ -70,6 +71,6 @@ it('ships a portable wireguard apply helper script', function () {
         ->toContain('APP_DIR="${APP_DIR:-$(cd "${SCRIPT_DIR}/.." && pwd)}"')
         ->toContain('WG_SYSTEM_DIR="${WG_SYSTEM_DIR:-/etc/wireguard}"')
         ->toContain('WG_SYSTEM_INTERFACE="${WG_SYSTEM_INTERFACE:-wg0}"')
-        ->toContain('WG_SYSTEM_SERVICE:-wg-quick@${WG_SYSTEM_INTERFACE}')
+        ->toContain('SYSTEM_SERVICE="${WG_SYSTEM_SERVICE:-wg-quick@wg0}"')
         ->not->toContain('/var/www/rafen-selfhosted-next/storage/app/wireguard/wg0.conf');
 });

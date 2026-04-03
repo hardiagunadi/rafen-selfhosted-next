@@ -68,14 +68,7 @@ class WgPeerSynchronizer
         // Re-apply group ownership after rename (rename does not inherit permissions)
         @chgrp($confPath, 'www-data');
 
-        // Apply changes without restarting the interface (no dropped connections)
-        // wg syncconf memerlukan config tanpa PostUp/PostDown (stripped).
-        // Pipe via /dev/stdin karena process substitution <(...) tidak kompatibel
-        // dengan sudo. sudoers di /etc/sudoers.d/rafen-wireguard mengizinkan
-        // www-data menjalankan kedua perintah tanpa password.
-        $interface = (string) config('wg.interface', 'wg0');
-        $iface     = escapeshellarg($interface);
-        $command   = "sudo wg-quick strip {$iface} | sudo wg syncconf {$iface} /dev/stdin";
+        $command = $this->applyCommand();
 
         $process = Process::fromShellCommandline($command);
         $process->run();
@@ -86,6 +79,21 @@ class WgPeerSynchronizer
                 throw new ProcessFailedException($process);
             }
         }
+    }
+
+    private function applyCommand(): string
+    {
+        $configured = trim((string) config('wg.apply_command', ''));
+
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        // Fallback untuk environment lama yang belum punya WG_APPLY_COMMAND.
+        $interface = (string) config('wg.interface', 'wg0');
+        $iface = escapeshellarg($interface);
+
+        return "sudo -n wg-quick strip {$iface} | sudo -n wg syncconf {$iface} /dev/stdin";
     }
 
     /**

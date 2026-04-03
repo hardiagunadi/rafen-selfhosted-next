@@ -1805,7 +1805,14 @@ bootstrap_wa_gateway_runtime() {
     local wa_dist_entry
     wa_dist_entry="$wa_path/dist/index.js"
 
-    if [ ! -f "$wa_path/package.json" ] || [ ! -f "$gateway_script" ] || [ ! -f "$wa_dist_entry" ]; then
+    if [ ! -f "$wa_path/package.json" ] || [ ! -f "$gateway_script" ]; then
+        warn "Source wa-multi-session tidak lengkap di $wa_path, melewati bootstrap PM2 otomatis."
+        return
+    fi
+
+    ensure_wa_gateway_dist_artifacts "$wa_path"
+
+    if [ ! -f "$wa_dist_entry" ]; then
         warn "Source wa-multi-session tidak lengkap di $wa_path, melewati bootstrap PM2 otomatis."
         return
     fi
@@ -1827,7 +1834,6 @@ bootstrap_wa_gateway_runtime() {
     db_table="$(read_env WA_MULTI_SESSION_DB_TABLE)"
     [ -n "$db_table" ] || db_table="wa_multi_session_auth_store"
 
-    ensure_wa_gateway_dist_artifacts "$wa_path"
     run_command runuser -u "$DEPLOY_USER" -g "$DEPLOY_GROUP" -- /bin/bash -lc "cd $(shell_quote "$wa_path") && npm ci --omit=dev"
 
     printf -v command '%s' "cd $(shell_quote "$wa_path") && \
