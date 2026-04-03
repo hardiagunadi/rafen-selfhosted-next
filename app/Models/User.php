@@ -266,6 +266,11 @@ class User extends Authenticatable
         return (int) ($this->subscriptionPlan?->max_ppp_users ?? -1);
     }
 
+    public function getEffectiveVpnPeersLimit(): int
+    {
+        return (int) ($this->subscriptionPlan?->max_vpn_peers ?? -1);
+    }
+
     public function hasReachedMikrotikLimit(?int $ownerId = null): bool
     {
         $limit = $this->getEffectiveMikrotikLimit();
@@ -286,6 +291,18 @@ class User extends Authenticatable
         }
 
         return PppUser::query()
+            ->where('owner_id', $ownerId ?? $this->effectiveOwnerId())
+            ->count() >= $limit;
+    }
+
+    public function hasReachedVpnPeersLimit(?int $ownerId = null): bool
+    {
+        $limit = $this->getEffectiveVpnPeersLimit();
+        if ($limit < 0) {
+            return false;
+        }
+
+        return WgPeer::query()
             ->where('owner_id', $ownerId ?? $this->effectiveOwnerId())
             ->count() >= $limit;
     }

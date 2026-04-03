@@ -112,6 +112,12 @@ Schedule::command('cpe:recover-offline')
     ->withoutOverlapping()
     ->runInBackground();
 
+// Refresh status system license dari disk setiap hari jam 00:01 (update status active/grace/restricted)
+Schedule::command('license:refresh')
+    ->dailyAt('00:01')
+    ->withoutOverlapping()
+    ->runInBackground();
+
 // Hapus otomatis tenant trial yang expired > 7 hari dan belum pernah beli paket (setiap hari jam 02:00)
 Schedule::command('tenants:cleanup-expired-trials')
     ->dailyAt('02:00')

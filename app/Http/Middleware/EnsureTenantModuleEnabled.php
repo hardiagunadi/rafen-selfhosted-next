@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureTenantModuleEnabled
@@ -33,7 +34,14 @@ class EnsureTenantModuleEnabled
     {
         return match ($module) {
             'hotspot' => $user->isHotspotModuleEnabled(),
-            default => false,
+            default => $this->unknownModule($module),
         };
+    }
+
+    private function unknownModule(string $module): false
+    {
+        Log::warning("EnsureTenantModuleEnabled: modul '{$module}' tidak dikenal dan selalu ditolak. Tambahkan handler di isModuleEnabled().");
+
+        return false;
     }
 }

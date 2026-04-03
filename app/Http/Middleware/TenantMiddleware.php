@@ -21,6 +21,9 @@ class TenantMiddleware
             return redirect()->route('login');
         }
 
+        // Self-hosted adalah single-tenant: satu instance = satu ISP.
+        // Kontrol akses sistem dikerjakan oleh EnsureValidSystemLicense (system.license middleware).
+        // Tidak perlu cek canAccessApp() per-tenant di sini karena tidak ada multi-tenant billing.
         if ((bool) config('license.self_hosted_enabled', false)) {
             return $next($request);
         }

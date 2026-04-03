@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreWgPeerRequest;
 use App\Http\Requests\UpdateWgPeerRequest;
 use App\Models\MikrotikConnection;
+use App\Models\User;
 use App\Models\WgPeer;
 use App\Services\RadiusClientsSynchronizer;
 use App\Services\WgPeerSynchronizer;
@@ -57,6 +58,20 @@ class WgSettingsController extends Controller
 
     public function store(StoreWgPeerRequest $request, WgPeerSynchronizer $synchronizer): JsonResponse|RedirectResponse
     {
+        $ownerId = auth()->user()->effectiveOwnerId();
+        $owner = User::query()->find($ownerId);
+
+        if ($owner && $owner->hasReachedVpnPeersLimit($ownerId)) {
+            $limit = $owner->getEffectiveVpnPeersLimit();
+            $message = "Batas VPN peer tenant sudah tercapai ({$limit}). Ubah limit paket terlebih dahulu.";
+
+            if ($request->wantsJson()) {
+                return response()->json(['error' => $message], Response::HTTP_UNPROCESSABLE_ENTITY);
+            }
+
+            return redirect()->route('settings.wg')->with('error', $message);
+        }
+
         $data             = $request->validated();
         $data['is_active'] = $request->boolean('is_active', true);
 
@@ -81,7 +96,7 @@ class WgSettingsController extends Controller
             return redirect()->route('settings.wg')->with('error', 'IP VPN pool sudah habis.');
         }
 
-        $data['owner_id'] = auth()->user()->effectiveOwnerId();
+        $data['owner_id'] = $ownerId;
         $peer = WgPeer::create($data);
         $peer->load('mikrotikConnection');
 

@@ -134,6 +134,11 @@ class SystemLicenseService
             return $this->persistInvalidLicense($license, 'invalid', 'Fingerprint lisensi tidak cocok dengan server ini.', $verifiedAt, $decodedPayload);
         }
 
+        $domainError = $this->validateDomainAccess($decodedPayload);
+        if ($domainError !== null) {
+            return $this->persistInvalidLicense($license, 'invalid', $domainError, $verifiedAt, $decodedPayload);
+        }
+
         $license->fill([
             'license_id' => $decodedPayload['license_id'],
             'customer_name' => $decodedPayload['customer_name'],
@@ -256,6 +261,33 @@ class SystemLicenseService
         $license->save();
 
         return $license->refresh();
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function validateDomainAccess(array $payload): ?string
+    {
+        $accessMode = $payload['access_mode'] ?? 'fingerprint_only';
+        $allowedHosts = is_array($payload['domains'] ?? null) ? $payload['domains'] : [];
+
+        if ($accessMode === 'fingerprint_only' || $allowedHosts === []) {
+            return null;
+        }
+
+        $currentHost = (string) parse_url((string) config('app.url'), PHP_URL_HOST);
+
+        if ($currentHost === '') {
+            return null;
+        }
+
+        foreach ($allowedHosts as $host) {
+            if (is_string($host) && strtolower(trim($host)) === strtolower($currentHost)) {
+                return null;
+            }
+        }
+
+        return "Domain '{$currentHost}' tidak termasuk dalam daftar domain yang diizinkan lisensi ini.";
     }
 
     private function parseDate(mixed $value): ?CarbonImmutable
