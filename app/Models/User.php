@@ -250,6 +250,15 @@ class User extends Authenticatable
 
     public function getEffectiveMikrotikLimit(): int
     {
+        // Self-hosted: limit dibaca dari SystemLicense::limits (sama seperti FeatureGateService)
+        if (config('license.self_hosted_enabled', false)) {
+            $license = app(\App\Services\SystemLicenseService::class)->getCurrent();
+            $limit = $license->limits['max_mikrotik'] ?? null;
+
+            return $limit !== null ? (int) $limit : -1;
+        }
+
+        // SaaS: baca dari kolom user (license method) atau subscription plan
         if ($this->isLicenseSubscription() && $this->license_max_mikrotik !== null) {
             return (int) $this->license_max_mikrotik;
         }
@@ -259,6 +268,13 @@ class User extends Authenticatable
 
     public function getEffectivePppUsersLimit(): int
     {
+        if (config('license.self_hosted_enabled', false)) {
+            $license = app(\App\Services\SystemLicenseService::class)->getCurrent();
+            $limit = $license->limits['max_ppp_users'] ?? null;
+
+            return $limit !== null ? (int) $limit : -1;
+        }
+
         if ($this->isLicenseSubscription() && $this->license_max_ppp_users !== null) {
             return (int) $this->license_max_ppp_users;
         }
@@ -268,6 +284,13 @@ class User extends Authenticatable
 
     public function getEffectiveVpnPeersLimit(): int
     {
+        if (config('license.self_hosted_enabled', false)) {
+            $license = app(\App\Services\SystemLicenseService::class)->getCurrent();
+            $limit = $license->limits['max_vpn_peers'] ?? null;
+
+            return $limit !== null ? (int) $limit : -1;
+        }
+
         return (int) ($this->subscriptionPlan?->max_vpn_peers ?? -1);
     }
 

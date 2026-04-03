@@ -1,0 +1,13 @@
+{
+    "publish_update_notice": {
+        "action": "publish_update_notice",
+        "label": "Publish Update Notice",
+        "command": "php artisan self-hosted:publish-update-notice storage/framework/self-hosted-update-notice-ui/_self_hosted_update_notice.json --json",
+        "success": true,
+        "exit_code": 0,
+        "duration_ms": 488,
+        "output": "Metadata update self-hosted berhasil dipublikasikan.\nOutput Path       : storage/framework/self-hosted-update-notice-ui/_self_hosted_update_notice.json\nAvailable Version : main-dev\n\n{\n    \"schema\": \"self-hosted-update-notice:v1\",\n    \"generated_at\": \"2026-04-03T07:43:31+07:00\",\n    \"source_repo\": \"rafen\",\n    \"available_version\": \"main-dev\",\n    \"headline\": \"Update Rafen Self-Hosted tersedia\",\n    \"summary\": \"Versi self-hosted terbaru siap dipublikasikan. Sarankan pengguna menjadwalkan update manual di maintenance window agar layanan tidak terganggu.\",\n    \"instructions\": \"Ambil backup database dan file penting, uji di staging atau server cadangan, lalu lakukan update saat jam maintenance yang aman.\",\n    \"release_notes_url\": null,\n    \"severity\": \"warning\",\n    \"manual_only\": true\n}",
+        "artifact_path": "storage/framework/self-hosted-update-notice-ui/_self_hosted_update_notice.json",
+        "ran_at": "2026-04-03T07:43:31+07:00"
+    }
+}
