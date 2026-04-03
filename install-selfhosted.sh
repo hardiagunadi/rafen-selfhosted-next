@@ -1884,8 +1884,8 @@ ensure_wa_gateway_dist_artifacts() {
     node_bin="$(resolve_command_path node || true)"
     [ -n "$node_bin" ] || fail "Binary node tidak ditemukan. Installer tidak bisa membaca versi package wa-multi-session."
 
-    package_name="$("$node_bin" -p "const pkg = require(process.argv[1]); process.stdout.write(String(pkg.name || ''))" "$package_json" 2>/dev/null || true)"
-    package_version="$("$node_bin" -p "const pkg = require(process.argv[1]); process.stdout.write(String(pkg.version || ''))" "$package_json" 2>/dev/null || true)"
+    package_name="$("$node_bin" -e "const pkg = require(process.argv[1]); process.stdout.write(String(pkg.name || ''))" "$package_json" 2>/dev/null || true)"
+    package_version="$("$node_bin" -e "const pkg = require(process.argv[1]); process.stdout.write(String(pkg.version || ''))" "$package_json" 2>/dev/null || true)"
 
     [ -n "$package_name" ] || package_name="wa-multi-session"
     [ -n "$package_version" ] || fail "Versi package wa-multi-session tidak ditemukan di $package_json."

@@ -39,6 +39,8 @@ it('ships self-hosted installer automation for single MariaDB and radius bootstr
         ->toContain('if [ ! -f "$wa_path/package.json" ] || [ ! -f "$gateway_script" ]; then')
         ->toContain('if [ ! -f "$wa_dist_entry" ]; then')
         ->toContain('Artifact wa-multi-session/dist belum ada. Mengambil runtime package ${npm_spec} dari npm.')
+        ->toContain('"$node_bin" -e "const pkg = require(process.argv[1]); process.stdout.write(String(pkg.name || \'\'))"')
+        ->toContain('"$node_bin" -e "const pkg = require(process.argv[1]); process.stdout.write(String(pkg.version || \'\'))"')
         ->toContain('npm pack $(shell_quote "$npm_spec") >/dev/null')
         ->toContain('pm2 jlist | node -e')
         ->toContain('wa-multi-session gagal online via PM2')
