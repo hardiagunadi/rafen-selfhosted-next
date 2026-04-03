@@ -2519,6 +2519,8 @@ ensure_wireguard_server_keypair() {
     local private_key_path
     local public_key_path
     local private_group
+    local private_key_value
+    local public_key_value
     private_key_path="${WG_SYSTEM_DIR}/server_private.key"
     public_key_path="${WG_SYSTEM_DIR}/server_public.key"
     private_group="root"
@@ -2527,36 +2529,62 @@ ensure_wireguard_server_keypair() {
         private_group="$APP_GROUP"
     fi
 
-    if [ -s "$private_key_path" ] && [ -s "$public_key_path" ]; then
-        return
-    fi
+    if [ ! -s "$private_key_path" ] || [ ! -s "$public_key_path" ]; then
+        command_exists wg || fail "Binary wg tidak ditemukan. Pastikan wireguard-tools terinstall sebelum bootstrap keypair."
 
-    command_exists wg || fail "Binary wg tidak ditemukan. Pastikan wireguard-tools terinstall sebelum bootstrap keypair."
+        info "Menyiapkan keypair server WireGuard di $WG_SYSTEM_DIR."
 
-    info "Menyiapkan keypair server WireGuard di $WG_SYSTEM_DIR."
+        if [ "$DRY_RUN" = "1" ]; then
+            printf '[DRY-RUN] generate %s dan %s\n' "$private_key_path" "$public_key_path"
+            return 0
+        fi
 
-    if [ "$DRY_RUN" = "1" ]; then
-        printf '[DRY-RUN] generate %s dan %s\n' "$private_key_path" "$public_key_path"
-        return 0
-    fi
+        install -d -m 0755 "$WG_SYSTEM_DIR"
 
-    install -d -m 0755 "$WG_SYSTEM_DIR"
+        if [ ! -s "$private_key_path" ]; then
+            (
+                umask 077
+                wg genkey >"$private_key_path"
+            )
+        fi
 
-    if [ ! -s "$private_key_path" ]; then
-        (
-            umask 077
-            wg genkey >"$private_key_path"
-        )
-    fi
-
-    if [ ! -s "$public_key_path" ]; then
-        wg pubkey <"$private_key_path" >"$public_key_path"
+        if [ ! -s "$public_key_path" ]; then
+            wg pubkey <"$private_key_path" >"$public_key_path"
+        fi
     fi
 
     chown root:"$private_group" "$private_key_path"
     chmod 0640 "$private_key_path"
     chown root:root "$public_key_path"
     chmod 0644 "$public_key_path"
+
+    private_key_value="$(tr -d '\r\n' <"$private_key_path")"
+    public_key_value="$(tr -d '\r\n' <"$public_key_path")"
+
+    if [ -n "$private_key_value" ]; then
+        set_env WG_SERVER_PRIVATE_KEY "$private_key_value"
+    fi
+
+    if [ -n "$public_key_value" ]; then
+        set_env WG_SERVER_PUBLIC_KEY "$public_key_value"
+    fi
+}
+
+apply_wireguard_runtime_config() {
+    local app_config_path
+
+    if [ "$RUN_WIREGUARD_SYSTEM_BOOTSTRAP" != "1" ]; then
+        return
+    fi
+
+    app_config_path="$APP_DIR/storage/app/wireguard/${WG_SYSTEM_INTERFACE}.conf"
+
+    if [ ! -f "$app_config_path" ]; then
+        warn "Konfigurasi WireGuard aplikasi belum terbentuk di $app_config_path, melewati apply service."
+        return
+    fi
+
+    run_command "$WG_SYNC_HELPER_PATH"
 }
 
 write_wireguard_sync_helper() {
@@ -2578,15 +2606,27 @@ write_wireguard_sync_helper() {
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-APP_CONFIG_PATH="${APP_DIR}/storage/app/wireguard/${WG_SYSTEM_INTERFACE}.conf"
-SYSTEM_CONFIG_PATH="${WG_SYSTEM_DIR}/${WG_SYSTEM_INTERFACE}.conf"
-SYSTEM_SERVICE="${WG_SYSTEM_SERVICE}"
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="\${APP_DIR:-\$(cd "\${SCRIPT_DIR}/.." && pwd)}"
+WG_SYSTEM_DIR="\${WG_SYSTEM_DIR:-${WG_SYSTEM_DIR}}"
+WG_SYSTEM_INTERFACE="\${WG_SYSTEM_INTERFACE:-${WG_SYSTEM_INTERFACE}}"
+SYSTEMCTL_BIN="\${SYSTEMCTL_BIN:-${SYSTEMCTL_BIN}}"
+APP_CONFIG_PATH="\${APP_CONFIG_PATH:-\${APP_DIR}/storage/app/wireguard/\${WG_SYSTEM_INTERFACE}.conf}"
+SYSTEM_CONFIG_PATH="\${WG_SYSTEM_DIR}/\${WG_SYSTEM_INTERFACE}.conf"
+SYSTEM_SERVICE="\${WG_SYSTEM_SERVICE:-${WG_SYSTEM_SERVICE}}"
 
-mkdir -p "${WG_SYSTEM_DIR}"
+mkdir -p "\$WG_SYSTEM_DIR"
+
+if [ ! -f "\$APP_CONFIG_PATH" ]; then
+    printf 'Konfigurasi sumber WireGuard belum ada: %s\n' "\$APP_CONFIG_PATH" >&2
+    printf 'Jalankan "php artisan wireguard:sync" atau selesaikan install self-hosted terlebih dahulu.\n' >&2
+    exit 1
+fi
+
 install -m 600 "\$APP_CONFIG_PATH" "\$SYSTEM_CONFIG_PATH"
-"${SYSTEMCTL_BIN}" daemon-reload
-"${SYSTEMCTL_BIN}" enable --now "\$SYSTEM_SERVICE"
-"${SYSTEMCTL_BIN}" restart "\$SYSTEM_SERVICE"
+"\$SYSTEMCTL_BIN" daemon-reload
+"\$SYSTEMCTL_BIN" enable --now "\$SYSTEM_SERVICE"
+"\$SYSTEMCTL_BIN" restart "\$SYSTEM_SERVICE"
 EOF
 
     chmod 0755 "$WG_SYNC_HELPER_PATH"
@@ -2941,6 +2981,7 @@ run_artisan_runtime_setup() {
 
     if run_in_app_as_installer_user "$PHP_BIN" artisan list --raw 2>/dev/null | grep -q '^wireguard:sync'; then
         run_in_app_as_installer_user "$PHP_BIN" artisan wireguard:sync --ansi
+        apply_wireguard_runtime_config
     else
         warn "Command wireguard:sync belum tersedia, melewati sinkronisasi WireGuard saat install."
     fi

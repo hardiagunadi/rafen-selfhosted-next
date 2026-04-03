@@ -20,6 +20,16 @@ it('guards the installer when the wireguard sync command is unavailable', functi
         ->and($installerSource)->toContain('Command wireguard:sync belum tersedia');
 });
 
+it('ships installer bootstrap that persists wireguard keys and applies the generated config', function () {
+    $installerSource = file_get_contents(base_path('install-selfhosted.sh'));
+
+    expect($installerSource)
+        ->toContain('set_env WG_SERVER_PRIVATE_KEY "$private_key_value"')
+        ->toContain('set_env WG_SERVER_PUBLIC_KEY "$public_key_value"')
+        ->toContain('apply_wireguard_runtime_config')
+        ->toContain('run_command "$WG_SYNC_HELPER_PATH"');
+});
+
 it('ships deploy sudo bootstrap for follow-up deployments', function () {
     $installerSource = file_get_contents(base_path('install-selfhosted.sh'));
 
