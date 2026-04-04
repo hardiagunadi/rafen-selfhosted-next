@@ -64,7 +64,7 @@ it('shows the app update page to self hosted super admin', function () {
         ->assertSuccessful()
         ->assertSee('App Update')
         ->assertSee('Current Version')
-        ->assertSee('SELF_HOSTED_UPDATE_MANIFEST_URL belum diisi.')
+        ->assertSee('Manifest update akan dicari otomatis dari release GitHub terbaru sesuai channel.')
         ->assertSee('Refresh Status')
         ->assertSee('Cek Update + Heartbeat')
         ->assertSee('Simulasi Apply')
@@ -160,6 +160,56 @@ it('checks update manifest from the app update page and stores update state', fu
         ->assertSee('Heartbeat status instance berhasil dikirim ke SaaS.');
 });
 
+it('auto-discovers update manifest from github releases when manifest url is empty', function () {
+    $this->withoutMiddleware(ValidateCsrfToken::class);
+
+    $superAdmin = createSuperAdminForAppUpdate();
+
+    config()->set('services.self_hosted_update.manifest_url', '');
+    config()->set('services.self_hosted_update.repository', 'git@github.com:hardiagunadi/rafen-selfhosted-next.git');
+    config()->set('services.self_hosted_update.channel', 'stable');
+    config()->set('services.self_hosted_registry.url', 'https://saas.example.test/api/self-hosted/install-registrations');
+    config()->set('services.self_hosted_registry.token', 'registry-token-003');
+
+    Http::fake([
+        'https://api.github.com/repos/hardiagunadi/rafen-selfhosted-next/releases?per_page=10' => Http::response([
+            [
+                'tag_name' => 'v2026.04.04-main.1',
+                'draft' => false,
+                'prerelease' => false,
+            ],
+        ], 200),
+        'https://github.com/hardiagunadi/rafen-selfhosted-next/releases/download/v2026.04.04-main.1/release-manifest.json' => Http::response([
+            'schema' => 'rafen-self-hosted-release:v1',
+            'channel' => 'stable',
+            'version' => '2026.04.04-main.1',
+            'tag' => 'v2026.04.04-main.1',
+            'commit' => 'bee6dfb',
+            'published_at' => '2026-04-04T09:00:00+07:00',
+            'release_notes_url' => 'https://example.test/releases/v2026.04.04-main.1',
+            'requires_maintenance' => true,
+            'requires_backup' => true,
+            'requires_migration' => false,
+        ], 200),
+        'https://saas.example.test/api/self-hosted/heartbeats' => Http::response([
+            'status_id' => 42,
+        ], 200),
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->post(route('super-admin.settings.app-update.check'))
+        ->assertRedirect(route('super-admin.settings.app-update'))
+        ->assertSessionHas('success', 'Cek update selesai. Release baru tersedia untuk instance ini.');
+
+    $state = SelfHostedUpdateState::query()->where('channel', 'stable')->first();
+
+    expect($state)
+        ->not->toBeNull()
+        ->and($state?->latest_manifest_url)->toBe('https://github.com/hardiagunadi/rafen-selfhosted-next/releases/download/v2026.04.04-main.1/release-manifest.json')
+        ->and($state?->last_check_status)->toBe('ok')
+        ->and($state?->latest_version)->toBe('2026.04.04-main.1');
+});
+
 it('checks update and sends heartbeat explicitly from the app update page', function () {
     $this->withoutMiddleware(ValidateCsrfToken::class);
 
@@ -241,11 +291,17 @@ it('runs dry run apply from the app update page and stores run history', functio
         ->assertSessionHas('success', 'Simulasi apply selesai. Gunakan command CLI untuk menjalankan update aktual.');
 
     $run = SelfHostedUpdateRun::query()->latest('id')->first();
+    $state = SelfHostedUpdateState::query()->where('channel', 'stable')->first();
 
     expect($run)
         ->not->toBeNull()
         ->and($run?->status)->toBe('dry_run')
         ->and($run?->action)->toBe('preflight');
+
+    expect($state)
+        ->not->toBeNull()
+        ->and($state?->last_apply_status)->toBeNull()
+        ->and($state?->last_applied_at)->toBeNull();
 
     $this->actingAs($superAdmin)
         ->get(route('super-admin.settings.app-update'))

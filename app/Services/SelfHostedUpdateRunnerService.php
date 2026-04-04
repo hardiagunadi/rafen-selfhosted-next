@@ -144,13 +144,17 @@ class SelfHostedUpdateRunnerService
         }
 
         try {
-            $maintenanceEnabled = true;
-            $this->runCommand(
-                sprintf('%s artisan down --retry=60', $this->phpBinary()),
-                'maintenance_down',
-                $log,
-                60,
-            );
+            if ($targetRelease['requires_maintenance']) {
+                $maintenanceEnabled = true;
+                $this->runCommand(
+                    sprintf('%s artisan down --retry=60', $this->phpBinary()),
+                    'maintenance_down',
+                    $log,
+                    60,
+                );
+            } else {
+                $log[] = 'Maintenance mode tidak diperlukan oleh manifest release ini.';
+            }
 
             if ($preflight['backup_required'] ?? false) {
                 $backupPath = $this->createBackup($log);
@@ -354,7 +358,10 @@ class SelfHostedUpdateRunnerService
 
         $postUpdateArtisan = data_get($manifest, 'raw.post_update.artisan');
         $postUpdateArtisan = is_array($postUpdateArtisan) && $postUpdateArtisan !== []
-            ? array_values(array_filter(array_map(fn ($command) => is_string($command) ? trim($command) : '', $postUpdateArtisan)))
+            ? array_values(array_filter(array_map(
+                fn ($command) => $this->normalizeArtisanCommand($command),
+                $postUpdateArtisan
+            )))
             : ['optimize:clear', 'config:cache', 'route:cache', 'view:cache'];
 
         return [
@@ -439,11 +446,14 @@ class SelfHostedUpdateRunnerService
         ]);
 
         $attributes = [
-            'last_applied_at' => now(),
-            'last_apply_status' => $status,
-            'last_apply_message' => $message,
             'rollback_ref' => $rollbackRef,
         ];
+
+        if ($status !== 'dry_run') {
+            $attributes['last_applied_at'] = now();
+            $attributes['last_apply_status'] = $status;
+            $attributes['last_apply_message'] = $message;
+        }
 
         if ($status === 'success') {
             $attributes['current_version'] = $targetRelease['version'];
@@ -649,6 +659,21 @@ class SelfHostedUpdateRunnerService
     private function phpBinary(): string
     {
         return escapeshellarg(PHP_BINARY);
+    }
+
+    private function normalizeArtisanCommand(mixed $command): string
+    {
+        if (! is_string($command)) {
+            return '';
+        }
+
+        $normalized = trim($command);
+
+        if ($normalized === '') {
+            return '';
+        }
+
+        return preg_replace('/^(php\s+artisan\s+)/i', '', $normalized, 1) ?? $normalized;
     }
 
     /**

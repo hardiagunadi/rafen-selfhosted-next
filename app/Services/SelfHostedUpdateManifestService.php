@@ -32,6 +32,29 @@ class SelfHostedUpdateManifestService
         return trim((string) config('services.self_hosted_update.manifest_url', ''));
     }
 
+    public function hasExplicitManifestUrl(): bool
+    {
+        return $this->manifestUrl() !== '';
+    }
+
+    public function canAutoDiscover(): bool
+    {
+        return $this->parseGitHubRepository() !== null;
+    }
+
+    public function configurationStatusMessage(): string
+    {
+        if ($this->hasExplicitManifestUrl()) {
+            return 'Manifest update memakai URL eksplisit dari konfigurasi.';
+        }
+
+        if ($this->canAutoDiscover()) {
+            return 'Manifest update akan dicari otomatis dari release GitHub terbaru sesuai channel.';
+        }
+
+        return 'SELF_HOSTED_UPDATE_MANIFEST_URL belum diisi.';
+    }
+
     /**
      * @return array<string, mixed>
      */
@@ -39,25 +62,81 @@ class SelfHostedUpdateManifestService
     {
         $url = $this->manifestUrl();
 
-        if ($url === '') {
-            throw new RuntimeException('SELF_HOSTED_UPDATE_MANIFEST_URL belum diisi.');
+        if ($url !== '') {
+            return $this->fetchFromUrl($url);
         }
 
-        $response = Http::timeout(15)
+        $repository = $this->parseGitHubRepository();
+
+        if ($repository === null) {
+            throw new RuntimeException('SELF_HOSTED_UPDATE_MANIFEST_URL belum diisi dan SELF_HOSTED_UPDATE_REPOSITORY bukan repo GitHub yang didukung untuk auto-discovery.');
+        }
+
+        $releaseResponse = Http::timeout(15)
             ->acceptJson()
-            ->get($url);
+            ->withHeaders([
+                'User-Agent' => 'rafen-self-hosted-update-checker',
+            ])
+            ->get(sprintf(
+                'https://api.github.com/repos/%s/%s/releases?per_page=10',
+                $repository['owner'],
+                $repository['name'],
+            ));
 
-        if ($response->failed()) {
-            throw new RuntimeException('Gagal mengambil manifest update: HTTP '.$response->status().' '.$response->body());
+        if ($releaseResponse->failed()) {
+            throw new RuntimeException('Gagal mengambil daftar release GitHub: HTTP '.$releaseResponse->status().' '.$releaseResponse->body());
         }
 
-        $payload = $response->json();
+        $releases = $releaseResponse->json();
 
-        if (! is_array($payload)) {
-            throw new RuntimeException('Manifest update tidak valid: payload JSON harus berupa object.');
+        if (! is_array($releases)) {
+            throw new RuntimeException('Respons release GitHub tidak valid.');
         }
 
-        return $this->normalizePayload($payload, $url);
+        $lastError = null;
+
+        foreach ($releases as $release) {
+            if (! is_array($release) || (bool) ($release['draft'] ?? false)) {
+                continue;
+            }
+
+            if ($this->channel() === 'stable' && (bool) ($release['prerelease'] ?? false)) {
+                continue;
+            }
+
+            $tag = trim((string) ($release['tag_name'] ?? ''));
+
+            if ($tag === '') {
+                continue;
+            }
+
+            $candidateUrl = sprintf(
+                'https://github.com/%s/%s/releases/download/%s/release-manifest.json',
+                $repository['owner'],
+                $repository['name'],
+                $tag,
+            );
+
+            try {
+                $manifest = $this->fetchFromUrl($candidateUrl);
+            } catch (RuntimeException $exception) {
+                $lastError = $exception;
+                continue;
+            }
+
+            if (($manifest['channel'] ?? null) !== $this->channel()) {
+                $lastError = new RuntimeException('Release manifest GitHub yang ditemukan belum cocok dengan channel instance.');
+                continue;
+            }
+
+            return $manifest;
+        }
+
+        if ($lastError instanceof RuntimeException) {
+            throw new RuntimeException('Auto-discovery release manifest gagal: '.$lastError->getMessage(), 0, $lastError);
+        }
+
+        throw new RuntimeException('Auto-discovery release manifest gagal: belum ada release GitHub yang cocok untuk channel '.$this->channel().'.');
     }
 
     /**
@@ -111,6 +190,56 @@ class SelfHostedUpdateManifestService
             ],
             'manifest_url' => $resolvedUrl !== '' ? $resolvedUrl : null,
             'raw' => $payload,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function fetchFromUrl(string $url): array
+    {
+        $response = Http::timeout(15)
+            ->acceptJson()
+            ->get($url);
+
+        if ($response->failed()) {
+            throw new RuntimeException('Gagal mengambil manifest update: HTTP '.$response->status().' '.$response->body());
+        }
+
+        $payload = $response->json();
+
+        if (! is_array($payload)) {
+            throw new RuntimeException('Manifest update tidak valid: payload JSON harus berupa object.');
+        }
+
+        return $this->normalizePayload($payload, $url);
+    }
+
+    /**
+     * @return array{owner: string, name: string}|null
+     */
+    private function parseGitHubRepository(): ?array
+    {
+        $repository = $this->repository();
+
+        if ($repository === '') {
+            return null;
+        }
+
+        if (preg_match('#github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$#', $repository, $matches) !== 1) {
+            return null;
+        }
+
+        $owner = trim($matches[1]);
+        $name = trim($matches[2]);
+
+        if ($owner === '' || $name === '') {
+            return null;
+        }
+
+        return [
+            'owner' => $owner,
+            'name' => $name,
         ];
     }
 }

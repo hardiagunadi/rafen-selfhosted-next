@@ -31,7 +31,7 @@ class SelfHostedUpdateStatusService
         return [
             'channel' => $this->channel(),
             'manifest_url' => $manifestUrl,
-            'is_configured' => $manifestUrl !== '',
+            'is_configured' => $manifestUrl !== '' || $this->manifestService->canAutoDiscover(),
             'is_storage_ready' => $this->isStorageReady(),
             'current_version' => $state?->current_version ?: $currentVersion,
             'current_commit' => $state?->current_commit ?: $currentCommit,
@@ -87,10 +87,12 @@ class SelfHostedUpdateStatusService
                 'update_available' => false,
                 'last_checked_at' => now(),
                 'last_check_status' => 'not_configured',
-                'last_check_message' => 'SELF_HOSTED_UPDATE_MANIFEST_URL belum diisi.',
+                'last_check_message' => $this->manifestService->configurationStatusMessage(),
             ])->save();
 
-            return $this->snapshot();
+            if (! $this->manifestService->canAutoDiscover()) {
+                return $this->snapshot();
+            }
         }
 
         try {
@@ -291,7 +293,7 @@ class SelfHostedUpdateStatusService
         }
 
         if ($manifestUrl === '') {
-            return 'SELF_HOSTED_UPDATE_MANIFEST_URL belum diisi.';
+            return $this->manifestService->configurationStatusMessage();
         }
 
         return 'Belum pernah melakukan cek update.';
