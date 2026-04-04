@@ -45,6 +45,7 @@ Catatan sinkronisasi install-time:
 - bila respons SaaS mengembalikan `registry_token` baru, token itu akan disimpan otomatis ke `.env` sebagai token instance ini
 
 Jika `--domain` tidak diisi, installer akan fallback ke IP utama server untuk `APP_URL` dan konfigurasi Nginx.
+Dalam mode ini, bootstrap Nginx bawaan hanya menyiapkan HTTP pada port `80`; akses `https://IP_SERVER` perlu listener/TLS tambahan yang Anda kelola sendiri.
 
 Untuk mode interaktif:
 - installer akan menyalin `.env.example` menjadi `.env` bila file belum ada
@@ -57,7 +58,7 @@ Untuk mode interaktif:
 
 Installer mendukung tiga mode akses:
 - `domain-based`: aktif bila `--domain` diisi, cocok untuk akses publik dan HTTPS/SSL
-- `ip-based`: default bila domain tidak diisi, cocok untuk LAN, VPN, atau akses internal
+- `ip-based`: default bila domain tidak diisi, cocok untuk LAN, VPN, atau akses internal; bootstrap bawaan fokus ke HTTP `80`
 - `custom-url`: aktif bila `--app-url` diisi manual
 
 Mode aktif bisa dicek lewat perintah `status`.
@@ -157,6 +158,9 @@ Payload yang dikirim self-hosted saat registrasi install-time saat ini mencakup:
 Artinya, generator token global di halaman `Public Key Lisensi` SaaS dipakai untuk bootstrap install baru, sedangkan rotasi token harian per tenant dilakukan dari halaman detail tenant self-hosted di SaaS.
 
 ## Catatan Operasional
+
+- jika instance berjalan dalam mode `ip-based`, anggap HTTP `80` sebagai jalur akses utama sampai listener HTTPS untuk IP benar-benar dikonfigurasi
+- fitur isolir captive portal lebih konsisten bila klien mengakses probe HTTP atau trafik dari pool isolir diarahkan ke app melalui port `80`
 
 - Jalankan installer sebagai `root` untuk fresh server agar provisioning sistem bisa lengkap
 - Bila dijalankan sebagai user biasa, installer akan mencoba eskalasi lewat `sudo`

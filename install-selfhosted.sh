@@ -3142,7 +3142,7 @@ show_status() {
             access_mode_note="Custom APP_URL aktif. Pastikan host ini memang bisa diakses client."
             ;;
         *)
-            access_mode_note="Fallback ke IP server. Cocok untuk LAN, VPN, atau akses internal tanpa domain."
+            access_mode_note="Fallback ke IP server. Cocok untuk LAN, VPN, atau akses internal tanpa domain. Default bootstrap Nginx hanya listen 80; siapkan TLS sendiri jika butuh HTTPS via IP."
             ;;
     esac
 

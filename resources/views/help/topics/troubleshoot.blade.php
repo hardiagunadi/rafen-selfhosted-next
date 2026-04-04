@@ -88,6 +88,16 @@ systemctl restart freeradius
 tail -f /var/log/freeradius/radius.log</code></pre>
         <div class="alert alert-warning mt-2"><i class="fas fa-exclamation-triangle mr-1"></i>Jika tetap gagal autentikasi setelah restart, cek log FreeRADIUS dan cari baris <code>ERROR</code> atau <code>FAILED</code>.</div>
 
+        <h5 id="isolir-ip-mode" class="border-bottom pb-2 text-danger mt-4"><i class="fas fa-globe mr-1"></i>5. Halaman isolir tidak muncul pada instalasi tanpa domain</h5>
+        <table class="table table-sm table-bordered mb-3">
+            <thead class="thead-light"><tr><th>Penyebab</th><th>Solusi</th></tr></thead>
+            <tbody>
+                <tr><td><code>APP_URL</code> memakai IP, tetapi akses diuji via HTTPS</td><td>Uji dulu akses <code>http://APP_URL</code>. Bootstrap Nginx bawaan self-hosted hanya menyiapkan listener port 80.</td></tr>
+                <tr><td>Rule isolir MikroTik aktif, tetapi klien tidak masuk pool isolir</td><td>Pastikan <code>Framed-Pool</code>, <code>Mikrotik-Group</code>, dan kick session berjalan saat pelanggan masuk status <code>isolir</code>.</td></tr>
+                <tr><td>Host/IP aplikasi tidak reachable dari router atau klien isolir</td><td>Cek NAT/firewall router, pastikan IP server Rafen bisa diakses dari subnet isolir.</td></tr>
+            </tbody>
+        </table>
+
         {{-- 5 --}}
         <h5 id="export-gagal" class="border-bottom pb-2 text-danger mt-4"><i class="fas fa-file-export mr-1"></i>5. Export ke MikroTik gagal</h5>
         <table class="table table-sm table-bordered mb-3">

@@ -116,3 +116,28 @@ it('redirects generate204 wildcard captive path to isolir page', function () {
 
     $response->assertRedirect('/isolir/'.$owner->id);
 });
+
+it('redirects direct app host access for clients coming from isolated pool ip', function () {
+    config()->set('app.url', 'http://198.51.100.10');
+
+    $owner = User::factory()->create([
+        'role' => 'administrator',
+        'subscription_status' => 'active',
+        'subscription_expires_at' => now()->addMonth(),
+    ]);
+
+    MikrotikConnection::factory()->create([
+        'owner_id' => $owner->id,
+        'host' => '203.0.113.40',
+        'is_active' => true,
+        'is_online' => true,
+        'isolir_pool_range' => '10.99.0.2-10.99.0.254',
+    ]);
+
+    $response = $this->withServerVariables([
+        'REMOTE_ADDR' => '10.99.0.44',
+        'HTTP_HOST' => '198.51.100.10',
+    ])->get('/');
+
+    $response->assertRedirect('/isolir/'.$owner->id);
+});

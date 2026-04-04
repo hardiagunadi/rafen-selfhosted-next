@@ -25,9 +25,9 @@ use RuntimeException;
  * - Semua traffic lain ke internet di-DROP
  *
  * Catatan keamanan HTTPS:
- * - HTTPS (443) di-DNAT ke port 80 server Rafen (plain HTTP)
- * - Browser akan menampilkan "Not Secure" tapi halaman tetap muncul
- * - Ini lebih aman dari web-proxy karena tidak bisa bypass dengan ganti DNS
+ * - Rule NAT mengarahkan 443 ke port 443 server Rafen
+ * - Jika server tidak melayani HTTPS pada host/IP tujuan, akses HTTPS bisa gagal
+ * - Probe captive portal berbasis HTTP tetap diarahkan ke halaman isolir
  */
 class IsolirSynchronizer
 {

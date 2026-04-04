@@ -29,25 +29,29 @@ class RedirectIsolatedCaptivePortal
             return $next($request);
         }
 
-        $ownerId = (int) Cache::remember("isolir:nas-owner:{$clientIp}", now()->addMinute(), function () use ($clientIp): int {
+        $ownerFromHost = (int) Cache::remember("isolir:nas-owner:{$clientIp}", now()->addMinute(), function () use ($clientIp): int {
             $ownerFromHost = (int) (MikrotikConnection::query()
                 ->where('is_active', true)
                 ->where('host', $clientIp)
                 ->orderByDesc('is_online')
                 ->value('owner_id') ?? 0);
 
-            if ($ownerFromHost > 0) {
-                return $ownerFromHost;
-            }
+            return $ownerFromHost;
+        });
 
+        $ownerFromPool = (int) Cache::remember("isolir:pool-owner:{$clientIp}", now()->addMinute(), function () use ($clientIp): int {
             return $this->resolveOwnerIdByIsolirPoolRange($clientIp);
         });
+
+        $ownerId = $ownerFromHost > 0 ? $ownerFromHost : $ownerFromPool;
 
         if ($ownerId <= 0) {
             return $next($request);
         }
 
-        if (! $this->isCaptiveRequest($request)) {
+        // Klien yang sudah berada di pool isolir harus tetap diarahkan ke halaman isolir
+        // walaupun mereka membuka APP_URL berbasis IP secara langsung.
+        if ($ownerFromPool <= 0 && ! $this->isCaptiveRequest($request)) {
             return $next($request);
         }
 

@@ -71,6 +71,7 @@
                     <div class="card-body">
                         Periksa status tagihan dan pengaturan aksi jatuh tempo pelanggan. Jika aksi isolir belum aktif atau job/scheduler tidak berjalan,
                         pelanggan tetap bisa online. Pastikan mekanisme isolir aktif dan route halaman isolir publik dapat diakses.
+                        Jika instalasi memakai IP tanpa domain, validasi dulu akses HTTP ke <code>APP_URL</code>; HTTPS by IP tidak selalu siap tanpa konfigurasi TLS tambahan.
                     </div>
                 </div>
             </div>
