@@ -25,6 +25,7 @@ class SelfHostedUpdateRunnerService
     ];
 
     public function __construct(
+        private readonly AppBuildMetadataService $buildMetadataService,
         private readonly SelfHostedUpdateManifestService $manifestService,
         private readonly SelfHostedUpdateStatusService $statusService,
     ) {}
@@ -168,6 +169,17 @@ class SelfHostedUpdateRunnerService
                 'git_checkout',
                 $log,
                 300,
+            );
+            $metadata = $this->buildMetadataService->syncEnvFile(
+                $this->manifestService->workdir().'/.env',
+                $targetRelease['version'],
+                $targetRelease['commit'],
+            );
+            $log[] = sprintf(
+                'Metadata build lokal disinkronkan ke %s (APP_VERSION=%s, APP_COMMIT=%s).',
+                $metadata['env_path'],
+                $metadata['version'],
+                $metadata['commit'] ?? '-',
             );
             $this->runCommand(
                 'composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader',

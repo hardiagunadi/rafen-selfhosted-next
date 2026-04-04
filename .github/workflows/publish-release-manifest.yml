@@ -1,0 +1,61 @@
+name: Publish Release Manifest
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  publish-release-manifest:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Create runtime environment
+        run: |
+          cp .env.example .env
+          php -r 'file_put_contents(".env", PHP_EOL."APP_KEY=base64:".base64_encode(random_bytes(32)).PHP_EOL, FILE_APPEND);'
+
+      - name: Build release manifest
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PUBLISHED_AT: ${{ github.event.release.published_at }}
+          RELEASE_NOTES_URL: ${{ github.event.release.html_url }}
+          RELEASE_REPOSITORY: https://github.com/${{ github.repository }}
+        run: |
+          php artisan self-hosted:publish-release-manifest release-manifest.json \
+            --tag="${RELEASE_TAG}" \
+            --published-at="${RELEASE_PUBLISHED_AT}" \
+            --release-notes-url="${RELEASE_NOTES_URL}" \
+            --repository="${RELEASE_REPOSITORY}" \
+            --php-version=8.4 \
+            --node-major=22 \
+            --json
+
+      - name: Upload manifest to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "${RELEASE_TAG}" release-manifest.json --clobber

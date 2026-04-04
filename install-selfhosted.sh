@@ -1185,6 +1185,66 @@ set_env() {
     mv "$tmp_file" "$ENV_FILE"
 }
 
+read_git_exact_tag() {
+    if ! command_exists git; then
+        return
+    fi
+
+    git -C "$APP_DIR" describe --tags --exact-match HEAD 2>/dev/null || true
+}
+
+read_git_short_commit() {
+    if ! command_exists git; then
+        return
+    fi
+
+    git -C "$APP_DIR" rev-parse --short HEAD 2>/dev/null || true
+}
+
+detect_app_version() {
+    local tag
+    local configured
+
+    tag="$(read_git_exact_tag)"
+
+    if [ -n "$tag" ]; then
+        case "$tag" in
+            v*)
+                printf '%s' "${tag#v}"
+                return
+                ;;
+            *)
+                printf '%s' "$tag"
+                return
+                ;;
+        esac
+    fi
+
+    configured="$(read_env APP_VERSION)"
+
+    if [ -n "$configured" ] && [ "$configured" != "main-dev" ]; then
+        printf '%s' "$configured"
+        return
+    fi
+
+    printf '%s' 'main-dev'
+}
+
+detect_app_commit() {
+    local configured
+    local commit
+
+    configured="$(read_env APP_COMMIT)"
+
+    if [ -n "$configured" ]; then
+        printf '%s' "$configured"
+        return
+    fi
+
+    commit="$(read_git_short_commit)"
+    printf '%s' "$commit"
+}
+
 normalize_sqlite_path() {
     if [ "$DB_CONNECTION" != "sqlite" ]; then
         return
@@ -1321,6 +1381,8 @@ configure_environment() {
     set_env APP_NAME "Rafen Self-Hosted"
     set_env APP_ENV "production"
     set_env APP_DEBUG "false"
+    set_env APP_VERSION "$(detect_app_version)"
+    set_env APP_COMMIT "$(detect_app_commit)"
     set_env DB_CONNECTION "$DB_CONNECTION"
     set_env SESSION_DRIVER "file"
     set_env QUEUE_CONNECTION "database"

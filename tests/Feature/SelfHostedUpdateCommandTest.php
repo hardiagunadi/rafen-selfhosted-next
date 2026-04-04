@@ -36,6 +36,7 @@ function createSelfHostedUpdateWorkdir(): string
     $path = sys_get_temp_dir().'/rafen-self-hosted-update-'.bin2hex(random_bytes(6));
 
     File::ensureDirectoryExists($path.'/.git');
+    File::put($path.'/.env', "APP_VERSION=main-dev\nAPP_COMMIT=\n");
 
     return $path;
 }
@@ -117,6 +118,95 @@ it('auto-discovers self hosted update manifest from github releases', function (
 
     expect(SelfHostedUpdateState::query()->where('channel', 'stable')->value('latest_manifest_url'))
         ->toBe('https://github.com/hardiagunadi/rafen-selfhosted-next/releases/download/v2026.04.01-main.1/release-manifest.json');
+});
+
+it('prefers the github release manifest asset url during auto-discovery', function () {
+    config()->set('services.self_hosted_update.manifest_url', '');
+    config()->set('services.self_hosted_update.repository', 'git@github.com:hardiagunadi/rafen-selfhosted-next.git');
+    config()->set('services.self_hosted_update.channel', 'stable');
+
+    Http::fake([
+        'https://api.github.com/repos/hardiagunadi/rafen-selfhosted-next/releases?per_page=10' => Http::response([
+            [
+                'tag_name' => 'v2026.04.04-main.2',
+                'draft' => false,
+                'prerelease' => false,
+                'html_url' => 'https://github.com/hardiagunadi/rafen-selfhosted-next/releases/tag/v2026.04.04-main.2',
+                'assets' => [
+                    [
+                        'name' => 'release-manifest.json',
+                        'browser_download_url' => 'https://github.com/hardiagunadi/rafen-selfhosted-next/releases/download/v2026.04.04-main.2/release-manifest.json?raw=1',
+                    ],
+                ],
+            ],
+        ], 200),
+        'https://github.com/hardiagunadi/rafen-selfhosted-next/releases/download/v2026.04.04-main.2/release-manifest.json?raw=1' => Http::response([
+            'schema' => 'rafen-self-hosted-release:v1',
+            'channel' => 'stable',
+            'version' => '2026.04.04-main.2',
+            'tag' => 'v2026.04.04-main.2',
+            'commit' => 'bee6dfb',
+            'published_at' => '2026-04-04T12:00:00+07:00',
+            'requires_maintenance' => false,
+            'requires_backup' => false,
+            'requires_migration' => false,
+        ], 200),
+    ]);
+
+    $this->artisan('self-hosted:update:check')
+        ->expectsOutputToContain('Manifest URL     : https://github.com/hardiagunadi/rafen-selfhosted-next/releases/download/v2026.04.04-main.2/release-manifest.json?raw=1')
+        ->expectsOutputToContain('Check Status     : ok')
+        ->assertSuccessful();
+
+    expect(SelfHostedUpdateState::query()->where('channel', 'stable')->value('latest_manifest_url'))
+        ->toBe('https://github.com/hardiagunadi/rafen-selfhosted-next/releases/download/v2026.04.04-main.2/release-manifest.json?raw=1');
+});
+
+it('reports a clear error when the latest github release has no manifest asset', function () {
+    config()->set('services.self_hosted_update.manifest_url', '');
+    config()->set('services.self_hosted_update.repository', 'git@github.com:hardiagunadi/rafen-selfhosted-next.git');
+    config()->set('services.self_hosted_update.channel', 'stable');
+
+    Http::fake([
+        'https://api.github.com/repos/hardiagunadi/rafen-selfhosted-next/releases?per_page=10' => Http::response([
+            [
+                'tag_name' => 'v2026.04.04-main.2',
+                'draft' => false,
+                'prerelease' => false,
+                'assets' => [],
+            ],
+        ], 200),
+    ]);
+
+    $this->artisan('self-hosted:update:check')
+        ->expectsOutputToContain('Check Status     : error')
+        ->expectsOutputToContain('Auto-discovery release manifest gagal: Release GitHub v2026.04.04-main.2 ditemukan, tetapi asset release-manifest.json belum dipublikasikan.')
+        ->assertFailed();
+});
+
+it('shows a more informative current version when app version is still main-dev', function () {
+    config()->set('app.version', 'main-dev');
+    config()->set('app.commit', 'abc1234');
+    config()->set('services.self_hosted_update.manifest_url', 'https://updates.example.test/releases/stable.json');
+    config()->set('services.self_hosted_update.channel', 'stable');
+
+    Http::fake([
+        'https://updates.example.test/releases/stable.json' => Http::response([
+            'schema' => 'rafen-self-hosted-release:v1',
+            'channel' => 'stable',
+            'version' => '2026.04.04-main.1',
+            'tag' => 'v2026.04.04-main.1',
+            'commit' => 'bee6dfb',
+            'published_at' => '2026-04-04T10:00:00+07:00',
+            'requires_maintenance' => false,
+            'requires_backup' => false,
+            'requires_migration' => false,
+        ], 200),
+    ]);
+
+    $this->artisan('self-hosted:update:check')
+        ->expectsOutputToContain('Current Version  : main-dev+abc1234')
+        ->assertSuccessful();
 });
 
 it('runs self hosted apply dry run and stores an audit trail', function () {
@@ -230,6 +320,10 @@ it('applies self hosted update from artisan command', function () {
         ->and($state?->last_apply_status)->toBe('success')
         ->and($state?->current_version)->toBe('2026.04.04-main.1')
         ->and($state?->current_ref)->toBe('v2026.04.04-main.1');
+
+    expect(File::get($workdir.'/.env'))
+        ->toContain('APP_VERSION=2026.04.04-main.1')
+        ->toContain('APP_COMMIT=bee6dfb');
 });
 
 it('accepts php artisan-prefixed post update commands from manifest', function () {

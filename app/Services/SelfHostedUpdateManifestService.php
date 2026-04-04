@@ -110,18 +110,30 @@ class SelfHostedUpdateManifestService
                 continue;
             }
 
-            $candidateUrl = sprintf(
-                'https://github.com/%s/%s/releases/download/%s/release-manifest.json',
-                $repository['owner'],
-                $repository['name'],
-                $tag,
-            );
+            $candidateUrl = $this->resolveManifestUrlFromRelease($release, $repository);
+
+            if ($candidateUrl === null) {
+                $lastError = new RuntimeException(sprintf(
+                    'Release GitHub %s ditemukan, tetapi asset release-manifest.json belum dipublikasikan.',
+                    $tag,
+                ));
+
+                continue;
+            }
 
             try {
                 $manifest = $this->fetchFromUrl($candidateUrl);
             } catch (RuntimeException $exception) {
                 $lastError = $exception;
                 continue;
+            }
+
+            if (($manifest['release_notes_url'] ?? null) === null) {
+                $releaseNotesUrl = trim((string) ($release['html_url'] ?? ''));
+
+                if ($releaseNotesUrl !== '') {
+                    $manifest['release_notes_url'] = $releaseNotesUrl;
+                }
             }
 
             if (($manifest['channel'] ?? null) !== $this->channel()) {
@@ -213,6 +225,46 @@ class SelfHostedUpdateManifestService
         }
 
         return $this->normalizePayload($payload, $url);
+    }
+
+    /**
+     * @param  array<string, mixed>  $release
+     * @param  array{owner: string, name: string}  $repository
+     */
+    private function resolveManifestUrlFromRelease(array $release, array $repository): ?string
+    {
+        $assets = $release['assets'] ?? null;
+
+        if (is_array($assets)) {
+            foreach ($assets as $asset) {
+                if (! is_array($asset)) {
+                    continue;
+                }
+
+                if (trim((string) ($asset['name'] ?? '')) !== 'release-manifest.json') {
+                    continue;
+                }
+
+                $browserDownloadUrl = trim((string) ($asset['browser_download_url'] ?? ''));
+
+                return $browserDownloadUrl !== '' ? $browserDownloadUrl : null;
+            }
+
+            return null;
+        }
+
+        $tag = trim((string) ($release['tag_name'] ?? ''));
+
+        if ($tag === '') {
+            return null;
+        }
+
+        return sprintf(
+            'https://github.com/%s/%s/releases/download/%s/release-manifest.json',
+            $repository['owner'],
+            $repository['name'],
+            $tag,
+        );
     }
 
     /**

@@ -212,6 +212,24 @@ class SelfHostedUpdateStatusService
     {
         $version = trim((string) config('app.version', 'main-dev'));
 
+        if ($version !== '' && $version !== 'main-dev') {
+            return $version;
+        }
+
+        $currentRef = $this->currentRef();
+
+        if ($currentRef !== null && preg_match('/^v(.+)/', $currentRef, $matches) === 1) {
+            return trim((string) $matches[1]);
+        }
+
+        $currentCommit = $this->currentCommit();
+
+        if ($currentCommit !== null && $currentCommit !== '') {
+            $baseVersion = $version !== '' ? $version : 'main-dev';
+
+            return $baseVersion.'+'.$currentCommit;
+        }
+
         return $version !== '' ? $version : 'main-dev';
     }
 

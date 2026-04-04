@@ -210,6 +210,37 @@ it('auto-discovers update manifest from github releases when manifest url is emp
         ->and($state?->latest_version)->toBe('2026.04.04-main.1');
 });
 
+it('shows a clear error when the latest github release has no manifest asset', function () {
+    $this->withoutMiddleware(ValidateCsrfToken::class);
+
+    $superAdmin = createSuperAdminForAppUpdate();
+
+    config()->set('services.self_hosted_update.manifest_url', '');
+    config()->set('services.self_hosted_update.repository', 'git@github.com:hardiagunadi/rafen-selfhosted-next.git');
+    config()->set('services.self_hosted_update.channel', 'stable');
+
+    Http::fake([
+        'https://api.github.com/repos/hardiagunadi/rafen-selfhosted-next/releases?per_page=10' => Http::response([
+            [
+                'tag_name' => 'v2026.04.04-main.2',
+                'draft' => false,
+                'prerelease' => false,
+                'assets' => [],
+            ],
+        ], 200),
+    ]);
+
+    $this->actingAs($superAdmin)
+        ->post(route('super-admin.settings.app-update.check'))
+        ->assertRedirect(route('super-admin.settings.app-update'))
+        ->assertSessionHas('error', 'Cek update selesai dengan status error: Auto-discovery release manifest gagal: Release GitHub v2026.04.04-main.2 ditemukan, tetapi asset release-manifest.json belum dipublikasikan.');
+
+    $this->actingAs($superAdmin)
+        ->get(route('super-admin.settings.app-update'))
+        ->assertSuccessful()
+        ->assertSee('release-manifest.json belum dipublikasikan');
+});
+
 it('checks update and sends heartbeat explicitly from the app update page', function () {
     $this->withoutMiddleware(ValidateCsrfToken::class);
 

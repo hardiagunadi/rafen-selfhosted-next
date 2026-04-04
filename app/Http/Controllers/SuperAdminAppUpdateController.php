@@ -43,6 +43,14 @@ class SuperAdminAppUpdateController extends Controller
                 ->with('error', $exception->getMessage());
         }
 
+        if (($snapshot['last_check_status'] ?? null) !== 'ok') {
+            $heartbeatService->submitBestEffort();
+
+            return redirect()
+                ->route('super-admin.settings.app-update')
+                ->with('error', $this->checkFailureMessage($snapshot));
+        }
+
         $message = ($snapshot['update_available'] ?? false)
             ? 'Cek update selesai. Release baru tersedia untuk instance ini.'
             : 'Cek update selesai. Instance ini sudah menggunakan release terbaru.';
@@ -80,6 +88,22 @@ class SuperAdminAppUpdateController extends Controller
             return redirect()
                 ->route('super-admin.settings.app-update')
                 ->with('error', $exception->getMessage());
+        }
+
+        if (($snapshot['last_check_status'] ?? null) !== 'ok') {
+            $message = $this->checkFailureMessage($snapshot);
+
+            try {
+                $heartbeatService->submit();
+            } catch (RuntimeException $exception) {
+                return redirect()
+                    ->route('super-admin.settings.app-update')
+                    ->with('error', $message.' Heartbeat gagal dikirim: '.$exception->getMessage());
+            }
+
+            return redirect()
+                ->route('super-admin.settings.app-update')
+                ->with('error', $message.' Heartbeat status instance berhasil dikirim ke SaaS.');
         }
 
         try {
@@ -148,5 +172,13 @@ class SuperAdminAppUpdateController extends Controller
         return ($snapshot['update_available'] ?? false)
             ? 'Cek update selesai. Release baru tersedia untuk instance ini.'
             : 'Cek update selesai. Instance ini sudah menggunakan release terbaru.';
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function checkFailureMessage(array $snapshot): string
+    {
+        return 'Cek update selesai dengan status '.($snapshot['last_check_status'] ?? 'error').': '.($snapshot['last_check_message'] ?? 'Terjadi kesalahan saat cek update.');
     }
 }
