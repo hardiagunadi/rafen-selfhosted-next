@@ -8,6 +8,9 @@ afterEach(function (): void {
 });
 
 it('syncs build metadata into an env file from the artisan command', function () {
+    config()->set('app.version', 'main-dev');
+    config()->set('app.commit', '');
+
     Process::fake([
         'git describe --tags --exact-match HEAD' => Process::result('v2026.04.06-main.1', '', 0),
         'git rev-parse --short HEAD' => Process::result('c0ffee1', '', 0),

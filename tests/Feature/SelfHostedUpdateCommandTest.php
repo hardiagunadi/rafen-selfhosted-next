@@ -185,10 +185,13 @@ it('reports a clear error when the latest github release has no manifest asset',
 });
 
 it('shows a more informative current version when app version is still main-dev', function () {
+    $workdir = createSelfHostedUpdateWorkdir();
+
     config()->set('app.version', 'main-dev');
     config()->set('app.commit', 'abc1234');
     config()->set('services.self_hosted_update.manifest_url', 'https://updates.example.test/releases/stable.json');
     config()->set('services.self_hosted_update.channel', 'stable');
+    config()->set('services.self_hosted_update.workdir', $workdir);
 
     Http::fake([
         'https://updates.example.test/releases/stable.json' => Http::response([

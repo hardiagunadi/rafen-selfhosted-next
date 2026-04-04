@@ -222,7 +222,7 @@ class SelfHostedUpdateRunnerService
             }
         } finally {
             if ($maintenanceEnabled) {
-                $result = Process::path($this->manifestService->workdir())
+                $result = $this->pendingProcess()
                     ->timeout(60)
                     ->run(sprintf('%s artisan up', $this->phpBinary()));
 
@@ -267,8 +267,15 @@ class SelfHostedUpdateRunnerService
             $this->assertCheck(false, 'database', 'Koneksi database aktif.', 'Koneksi database gagal: '.$exception->getMessage(), $checks);
         }
 
-        $currentHead = $this->readCurrentHead();
-        $this->assertCheck($currentHead !== null, 'current_head', 'Current HEAD berhasil dibaca.', 'Tidak bisa membaca current HEAD repository.', $checks);
+        $currentHeadCheck = $this->readCurrentHead();
+        $currentHead = $currentHeadCheck['head'];
+        $this->assertCheck(
+            $currentHead !== null,
+            'current_head',
+            'Current HEAD berhasil dibaca.',
+            $currentHeadCheck['error'] ?? 'Tidak bisa membaca current HEAD repository.',
+            $checks
+        );
 
         $dirtyEntries = $this->dirtyWorktreeEntries();
         $ignoreDirty = (bool) config('services.self_hosted_update.ignore_dirty_worktree', false);
@@ -484,7 +491,7 @@ class SelfHostedUpdateRunnerService
     {
         $log[] = sprintf('[%s] %s', $step, $command);
 
-        $result = Process::path($this->manifestService->workdir())
+        $result = $this->pendingProcess($command)
             ->timeout($timeout)
             ->run($command);
 
@@ -581,7 +588,7 @@ class SelfHostedUpdateRunnerService
         ];
 
         foreach ($commands as $command) {
-            $result = Process::path($this->manifestService->workdir())
+            $result = $this->pendingProcess($command)
                 ->timeout(300)
                 ->run($command);
 
@@ -627,12 +634,16 @@ class SelfHostedUpdateRunnerService
      */
     private function dirtyWorktreeEntries(): array
     {
-        $result = Process::path($this->manifestService->workdir())
+        $result = $this->pendingProcess('git status --short --untracked-files=normal')
             ->timeout(15)
             ->run('git status --short --untracked-files=normal');
 
         if (! $result->successful()) {
-            return ['git status gagal dijalankan'];
+            return ['git status gagal dijalankan: '.$this->summarizeGitFailure(
+                $result->output(),
+                $result->errorOutput(),
+                $result->exitCode(),
+            )];
         }
 
         return collect(preg_split('/\r\n|\r|\n/', trim($result->output())) ?: [])
@@ -653,19 +664,32 @@ class SelfHostedUpdateRunnerService
             ->all();
     }
 
-    private function readCurrentHead(): ?string
+    /**
+     * @return array{head: string|null, error: string|null}
+     */
+    private function readCurrentHead(): array
     {
-        $result = Process::path($this->manifestService->workdir())
+        $result = $this->pendingProcess('git rev-parse HEAD')
             ->timeout(15)
             ->run('git rev-parse HEAD');
 
         if (! $result->successful()) {
-            return null;
+            return [
+                'head' => null,
+                'error' => 'Tidak bisa membaca current HEAD repository: '.$this->summarizeGitFailure(
+                    $result->output(),
+                    $result->errorOutput(),
+                    $result->exitCode(),
+                ),
+            ];
         }
 
         $head = trim($result->output());
 
-        return $head !== '' ? $head : null;
+        return [
+            'head' => $head !== '' ? $head : null,
+            'error' => $head !== '' ? null : 'Tidak bisa membaca current HEAD repository: output git rev-parse kosong.',
+        ];
     }
 
     private function phpBinary(): string
@@ -686,6 +710,59 @@ class SelfHostedUpdateRunnerService
         }
 
         return preg_replace('/^(php\s+artisan\s+)/i', '', $normalized, 1) ?? $normalized;
+    }
+
+    private function pendingProcess(?string $command = null): \Illuminate\Process\PendingProcess
+    {
+        $process = Process::path($this->manifestService->workdir());
+
+        if ($command !== null && preg_match('/^\s*git\b/', $command) === 1) {
+            $process = $process->env($this->gitEnvironment());
+        }
+
+        return $process;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function gitEnvironment(): array
+    {
+        $configPath = storage_path('framework/git/safe-directory.gitconfig');
+        $configDir = dirname($configPath);
+        $workdir = $this->manifestService->workdir();
+
+        File::ensureDirectoryExists($configDir);
+
+        $contents = "[safe]\n\tdirectory = {$workdir}\n";
+
+        if (! File::exists($configPath) || File::get($configPath) !== $contents) {
+            File::put($configPath, $contents);
+        }
+
+        return [
+            'GIT_CONFIG_GLOBAL' => $configPath,
+            'HOME' => $configDir,
+        ];
+    }
+
+    private function summarizeGitFailure(string $output, string $errorOutput, ?int $exitCode = null): string
+    {
+        $message = trim($errorOutput);
+
+        if ($message === '') {
+            $message = trim($output);
+        }
+
+        if ($message === '') {
+            $message = 'exit code '.($exitCode ?? 1);
+        }
+
+        if (str_contains(strtolower($message), 'dubious ownership')) {
+            $message .= ' Jalankan git config --system --add safe.directory '.$this->manifestService->workdir().' atau atur safe.directory untuk user PHP-FPM.';
+        }
+
+        return preg_replace('/\s+/', ' ', $message) ?? $message;
     }
 
     /**

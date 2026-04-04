@@ -1097,6 +1097,22 @@ prepare_app_for_deploy_user() {
     fi
 }
 
+ensure_git_safe_directory() {
+    command_exists git || return
+    [ -d "$APP_DIR/.git" ] || return
+
+    if git config --system --get-all safe.directory 2>/dev/null | grep -Fx "$APP_DIR" >/dev/null 2>&1; then
+        return
+    fi
+
+    if [ "$ALLOW_NON_ROOT" = "1" ] || [ "$(id -u)" -ne 0 ]; then
+        warn "safe.directory Git belum bisa diatur otomatis tanpa root. Jalankan: git config --global --add safe.directory $APP_DIR"
+        return
+    fi
+
+    run_command git config --system --add safe.directory "$APP_DIR"
+}
+
 ensure_runtime_directories() {
     local directories=(
         "$APP_DIR/bootstrap/cache"
@@ -3270,6 +3286,7 @@ run_install_or_deploy() {
     configure_environment
     validate_database_runtime_choice
     prepare_app_for_deploy_user
+    ensure_git_safe_directory
     configure_timezone
     install_system_packages
     verify_php_database_extensions
