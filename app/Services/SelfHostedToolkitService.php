@@ -167,7 +167,7 @@ class SelfHostedToolkitService
                 return [];
             }
 
-            return collect(preg_split('/\r\n|\r|\n/', trim($process->getOutput())) ?: [])
+            return collect(preg_split('/\r\n|\r|\n/', rtrim($process->getOutput())) ?: [])
                 ->filter(fn ($line) => is_string($line) && trim($line) !== '')
                 ->map(fn ($line) => rtrim((string) $line))
                 ->reject(function (string $line): bool {

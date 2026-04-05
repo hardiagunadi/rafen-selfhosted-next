@@ -649,7 +649,7 @@ class SelfHostedUpdateRunnerService
             )];
         }
 
-        return collect(preg_split('/\r\n|\r|\n/', trim($result->output())) ?: [])
+        return collect(preg_split('/\r\n|\r|\n/', rtrim($result->output())) ?: [])
             ->filter(fn ($line) => is_string($line) && trim($line) !== '')
             ->map(fn ($line) => rtrim((string) $line))
             ->reject(function (string $line): bool {
