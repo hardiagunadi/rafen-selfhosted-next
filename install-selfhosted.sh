@@ -1113,6 +1113,13 @@ ensure_git_safe_directory() {
     run_command git config --system --add safe.directory "$APP_DIR"
 }
 
+ensure_git_runtime_defaults() {
+    command_exists git || return
+    [ -d "$APP_DIR/.git" ] || return
+
+    run_in_app_as_installer_user git config core.filemode false
+}
+
 ensure_runtime_directories() {
     local directories=(
         "$APP_DIR/bootstrap/cache"
@@ -1123,7 +1130,9 @@ ensure_runtime_directories() {
         "$APP_DIR/storage/app/radius"
         "$APP_DIR/storage/app/wireguard"
         "$APP_DIR/storage/framework/cache/data"
+        "$APP_DIR/storage/framework/git"
         "$APP_DIR/storage/framework/sessions"
+        "$APP_DIR/storage/framework/self-hosted-toolkit"
         "$APP_DIR/storage/framework/views"
         "$APP_DIR/storage/logs"
         "$APP_DIR/tests/Unit"
@@ -1399,6 +1408,8 @@ configure_environment() {
     set_env APP_DEBUG "false"
     set_env APP_VERSION "$(detect_app_version)"
     set_env APP_COMMIT "$(detect_app_commit)"
+    set_env SELF_HOSTED_UPDATE_WORKDIR "$APP_DIR"
+    set_env SELF_HOSTED_UPDATE_PHP_BINARY "$PHP_BIN"
     set_env DB_CONNECTION "$DB_CONNECTION"
     set_env SESSION_DRIVER "file"
     set_env QUEUE_CONNECTION "database"
@@ -3287,6 +3298,7 @@ run_install_or_deploy() {
     validate_database_runtime_choice
     prepare_app_for_deploy_user
     ensure_git_safe_directory
+    ensure_git_runtime_defaults
     configure_timezone
     install_system_packages
     verify_php_database_extensions

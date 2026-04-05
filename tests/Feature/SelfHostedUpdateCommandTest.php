@@ -260,6 +260,44 @@ it('runs self hosted apply dry run and stores an audit trail', function () {
         ->and($state?->last_applied_at)->toBeNull();
 });
 
+it('ignores generated updater runtime artifacts in git status preflight', function () {
+    $workdir = createSelfHostedUpdateWorkdir();
+
+    config()->set('services.self_hosted_update.manifest_url', 'https://updates.example.test/releases/stable.json');
+    config()->set('services.self_hosted_update.channel', 'stable');
+    config()->set('services.self_hosted_update.workdir', $workdir);
+
+    Http::fake([
+        'https://updates.example.test/releases/stable.json' => Http::response([
+            'schema' => 'rafen-self-hosted-release:v1',
+            'channel' => 'stable',
+            'version' => '2026.04.04-main.1',
+            'tag' => 'v2026.04.04-main.1',
+            'commit' => 'bee6dfb',
+            'published_at' => '2026-04-04T10:00:00+07:00',
+            'release_notes_url' => 'https://example.test/releases/v2026.04.04-main.1',
+            'requires_maintenance' => true,
+            'requires_backup' => false,
+            'requires_migration' => false,
+        ], 200),
+    ]);
+
+    Process::fake(function ($process) {
+        return match ($process->command) {
+            'git rev-parse HEAD' => Process::result('1111111111111111111111111111111111111111', '', 0),
+            'git status --short --untracked-files=normal' => Process::result(implode(PHP_EOL, [
+                ' M storage/framework/git/safe-directory.gitconfig',
+                ' M storage/framework/self-hosted-toolkit/last-runs.json',
+            ]), '', 0),
+            default => Process::result('', 'Unexpected command in generated-artifact ignore test.', 1),
+        };
+    });
+
+    $this->artisan('self-hosted:update:apply --dry-run')
+        ->expectsOutputToContain('Status           : dry_run')
+        ->assertSuccessful();
+});
+
 it('applies self hosted update from artisan command', function () {
     $workdir = createSelfHostedUpdateWorkdir();
 

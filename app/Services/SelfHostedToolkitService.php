@@ -169,9 +169,9 @@ class SelfHostedToolkitService
 
             return collect(preg_split('/\r\n|\r|\n/', trim($process->getOutput())) ?: [])
                 ->filter(fn ($line) => is_string($line) && trim($line) !== '')
-                ->map(fn ($line) => trim((string) $line))
+                ->map(fn ($line) => rtrim((string) $line))
                 ->reject(function (string $line): bool {
-                    $path = trim(substr($line, 3));
+                    $path = $this->gitStatusPathFromPorcelainLine($line);
 
                     foreach (self::GENERATED_STATUS_IGNORE_PREFIXES as $prefix) {
                         if (str_starts_with($path, $prefix)) {
@@ -186,6 +186,21 @@ class SelfHostedToolkitService
         } catch (Throwable) {
             return [];
         }
+    }
+
+    private function gitStatusPathFromPorcelainLine(string $line): string
+    {
+        $line = rtrim($line);
+
+        if ($line === '') {
+            return '';
+        }
+
+        if (preg_match('/^(?:\?\?|\!\!|[ MADRCU][ MADRCU])\s+(.+)$/', $line, $matches) === 1) {
+            return trim((string) $matches[1]);
+        }
+
+        return trim($line);
     }
 
     /**
