@@ -63,6 +63,7 @@ return [
         'channel' => env('SELF_HOSTED_UPDATE_CHANNEL', 'stable'),
         'repository' => env('SELF_HOSTED_UPDATE_REPOSITORY', 'git@github.com:hardiagunadi/rafen-selfhosted-next.git'),
         'workdir' => env('SELF_HOSTED_UPDATE_WORKDIR', base_path()),
+        'php_binary' => env('SELF_HOSTED_UPDATE_PHP_BINARY', ''),
         'ignore_dirty_worktree' => (bool) env('SELF_HOSTED_UPDATE_IGNORE_DIRTY_WORKTREE', false),
     ],
 

@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
+use Symfony\Component\Process\PhpExecutableFinder;
 use Throwable;
 
 class SelfHostedUpdateRunnerService
@@ -694,7 +695,44 @@ class SelfHostedUpdateRunnerService
 
     private function phpBinary(): string
     {
-        return escapeshellarg(PHP_BINARY);
+        $configuredBinary = trim((string) config('services.self_hosted_update.php_binary', ''));
+
+        if ($configuredBinary !== '') {
+            return escapeshellarg($configuredBinary);
+        }
+
+        $finderBinary = (new PhpExecutableFinder())->find(false);
+
+        if (is_string($finderBinary) && $this->isSupportedPhpCliBinary($finderBinary)) {
+            return escapeshellarg($finderBinary);
+        }
+
+        if ($this->isSupportedPhpCliBinary(PHP_BINARY)) {
+            return escapeshellarg(PHP_BINARY);
+        }
+
+        return 'php';
+    }
+
+    private function isSupportedPhpCliBinary(?string $binary): bool
+    {
+        if (! is_string($binary)) {
+            return false;
+        }
+
+        $binary = trim($binary);
+
+        if ($binary === '') {
+            return false;
+        }
+
+        $basename = strtolower(basename($binary));
+
+        if (str_contains($basename, 'php-fpm') || str_contains($basename, 'php-cgi')) {
+            return false;
+        }
+
+        return true;
     }
 
     private function normalizeArtisanCommand(mixed $command): string
