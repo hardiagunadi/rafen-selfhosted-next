@@ -23,6 +23,8 @@ class SelfHostedUpdateRunnerService
     private const array GENERATED_STATUS_IGNORE_PREFIXES = [
         'storage/framework/self-hosted-',
         'storage/framework/rafen-selfhosted-',
+        'storage/framework/git/',
+        'storage/framework/self-hosted-toolkit/',
     ];
 
     public function __construct(
