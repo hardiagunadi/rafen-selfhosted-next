@@ -322,7 +322,10 @@ Route::middleware($tenantAppMiddleware)->group(function () use (
     Route::post('ppp-users/{pppUser}/nota-layanan', [PppUserController::class, 'storeServiceNote'])->name('ppp-users.service-notes.store');
     Route::get('ppp-users/{pppUser}/nota-aktivasi', [PppUserController::class, 'notaAktivasi'])->name('ppp-users.nota-aktivasi');
     Route::get('service-notes', [ServiceNoteController::class, 'index'])->name('service-notes.index');
+    Route::get('service-notes/{serviceNote}/edit', [PppUserController::class, 'editServiceNote'])->name('service-notes.edit');
+    Route::put('service-notes/{serviceNote}', [PppUserController::class, 'updateServiceNote'])->name('service-notes.update');
     Route::get('service-notes/{serviceNote}/print', [ServiceNoteController::class, 'print'])->name('service-notes.print');
+    Route::post('service-notes/{serviceNote}/confirm-transfer', [ServiceNoteController::class, 'confirmTransfer'])->name('service-notes.confirm-transfer');
     Route::resource('ppp-users', PppUserController::class);
     Route::get('odps/datatable', [OdpController::class, 'datatable'])->name('odps.datatable');
     Route::get('odps/generate-code', [OdpController::class, 'generateCode'])->name('odps.generate-code');

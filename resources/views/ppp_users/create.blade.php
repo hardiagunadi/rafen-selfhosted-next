@@ -692,13 +692,81 @@ textarea.mf-input { height:auto;padding:.5rem .75rem;resize:vertical; }
         const isUsernamePassword = metodeLoginSelect.value === 'username_password';
         if (pppPasswordInput && pppPasswordRow) {
             pppPasswordInput.required = isUsernamePassword;
+            pppPasswordInput.disabled = ! isUsernamePassword;
+            pppPasswordInput.setCustomValidity('');
             pppPasswordRow.style.display = isUsernamePassword ? '' : 'none';
         }
     }
+
+    function isVisibleRequiredField(element) {
+        if (element.disabled) {
+            return false;
+        }
+
+        if (element.name === 'ppp_password' && metodeLoginSelect.value !== 'username_password') {
+            return false;
+        }
+
+        return element.required;
+    }
+
+    function hasInvalidRequiredField(container) {
+        return Array.from(container.querySelectorAll('[required]')).some(function (element) {
+            return isVisibleRequiredField(element) && ! element.checkValidity();
+        });
+    }
+
+    function syncOdpPortOptions() {
+        if (!odpSelect || !odpPortSelect) {
+            return;
+        }
+
+        const selectedOption = odpSelect.options[odpSelect.selectedIndex];
+        const capacity = selectedOption ? parseInt(selectedOption.dataset.capacity || '0', 10) : 0;
+        const selectedPort = odpPortSelect.dataset.selected || odpPortSelect.value || '';
+
+        odpPortSelect.innerHTML = '<option value="">- pilih port -</option>';
+        odpPortSelect.disabled = !odpSelect.value || capacity < 1;
+
+        if (!odpSelect.value) {
+            if (odpPortHint) {
+                odpPortHint.textContent = 'Pilih ODP Master dulu untuk menampilkan port yang tersedia.';
+            }
+
+            return;
+        }
+
+        if (capacity < 1) {
+            if (odpPortHint) {
+                odpPortHint.textContent = 'ODP ini belum memiliki kapasitas port.';
+            }
+
+            return;
+        }
+
+        for (let port = 1; port <= capacity; port += 1) {
+            const option = document.createElement('option');
+            option.value = String(port);
+            option.textContent = 'Port ' + port;
+            if (String(port) === String(selectedPort)) {
+                option.selected = true;
+            }
+            odpPortSelect.appendChild(option);
+        }
+
+        if (odpPortHint) {
+            odpPortHint.textContent = 'Port tersedia 1 sampai ' + capacity + ' sesuai kapasitas ODP.';
+        }
+
+        odpPortSelect.dataset.selected = '';
+    }
+
     metodeLoginSelect.addEventListener('change', togglePasswordRequirement);
     togglePasswordRequirement();
 
     document.getElementById('ppp-user-form').addEventListener('submit', function (e) {
+        togglePasswordRequirement();
+
         const alertBox = document.getElementById('form-alert');
         alertBox.style.display = 'none';
         alertBox.innerHTML = '';
@@ -708,8 +776,8 @@ textarea.mf-input { height:auto;padding:.5rem .75rem;resize:vertical; }
         const tabInfo  = document.getElementById('tab-info');
         const paketSelect = document.querySelector('select[name="ppp_profile_id"]');
 
-        const paketInvalid = Array.from(tabPaket.querySelectorAll('[required]')).some(el => ! el.checkValidity());
-        const infoInvalid  = Array.from(tabInfo.querySelectorAll('[required]')).some(el => ! el.checkValidity());
+        const paketInvalid = hasInvalidRequiredField(tabPaket);
+        const infoInvalid  = hasInvalidRequiredField(tabInfo);
         const messages = [];
 
         if (! paketSelect.value) { messages.push('Paket Langganan belum diisi.'); }

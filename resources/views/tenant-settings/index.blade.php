@@ -9,6 +9,7 @@
     $bankAccountCount = $bankAccounts->count();
     $hideSettingsForms = isset($tenants) && $tenants !== null && $settings === null;
     $isSelfHostedApp = (bool) ($isSelfHostedApp ?? false);
+    $browserInvoiceFontOptions = \App\Models\TenantSettings::browserInvoiceFontOptions();
 @endphp
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css">
 <style>
@@ -410,6 +411,17 @@
                     <div class="form-group">
                         <label>Catatan Invoice</label>
                         <textarea name="invoice_notes" class="form-control" rows="2">{{ old('invoice_notes', $settings->invoice_notes) }}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label>Font Cetak Browser</label>
+                        <select name="browser_invoice_font" class="form-control">
+                            @foreach($browserInvoiceFontOptions as $fontValue => $fontLabel)
+                                <option value="{{ $fontValue }}" @selected(old('browser_invoice_font', $settings->resolvedBrowserInvoiceFont()) === $fontValue)>{{ $fontLabel }}</option>
+                            @endforeach
+                        </select>
+                        <small class="text-muted">
+                            Berlaku untuk nota dan invoice yang dicetak dari browser. `Draft` memakai gaya monospace, `Roman` memakai gaya serif, dan `Sans Serif` memakai gaya default modern.
+                        </small>
                     </div>
                 </div>
                 <div class="card-footer">

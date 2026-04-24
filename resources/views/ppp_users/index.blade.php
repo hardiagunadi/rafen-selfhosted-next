@@ -155,7 +155,7 @@
                     { data: 'tipe',        orderable: false },
                     { data: 'paket',       orderable: false },
                     { data: 'diperpanjang',orderable: true },
-                    { data: 'jatuh_tempo', orderable: false },
+                    { data: 'jatuh_tempo', orderable: true },
                     { data: 'renew_print', orderable: false, searchable: false },
                     { data: 'aksi',        orderable: false, searchable: false, className: 'text-right' },
                     { data: 'owner',       orderable: false },
@@ -171,7 +171,7 @@
                 },
                 pageLength: 10,
                 lengthMenu: [[10, 25, 50, 100], [10, 25, 50, 100]],
-                order: [[5, 'desc']],
+                order: [[6, 'asc']],
                 dom: '<"row align-items-center"<"col-sm-6"l><"col-sm-6 d-flex justify-content-end"f>>rt<"row align-items-center mt-2"<"col-sm-6"i><"col-sm-6 d-flex justify-content-end"p>>',
                 drawCallback: function () {
                     $('[data-toggle="tooltip"]').tooltip();

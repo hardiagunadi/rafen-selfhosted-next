@@ -14,6 +14,10 @@ class ServiceNote extends Model
     /** @use HasFactory<ServiceNoteFactory> */
     use HasFactory;
 
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_PAID = 'paid';
+
     /**
      * @var list<string>
      */
@@ -98,6 +102,39 @@ class ServiceNote extends Model
         }
 
         return $query->where('owner_id', $user->effectiveOwnerId());
+    }
+
+    public function isPending(): bool
+    {
+        return $this->status === self::STATUS_PENDING;
+    }
+
+    public function isPaid(): bool
+    {
+        return $this->status === self::STATUS_PAID;
+    }
+
+    public function requiresTransferConfirmation(): bool
+    {
+        return $this->payment_method === 'transfer' && $this->isPending();
+    }
+
+    public function statusLabel(): string
+    {
+        return match ($this->status) {
+            self::STATUS_PENDING => 'Menunggu Konfirmasi',
+            self::STATUS_PAID => 'Lunas',
+            default => ucfirst((string) $this->status),
+        };
+    }
+
+    public function statusBadgeClass(): string
+    {
+        return match ($this->status) {
+            self::STATUS_PENDING => 'warning',
+            self::STATUS_PAID => 'success',
+            default => 'secondary',
+        };
     }
 
     public static function generateNumber(int $ownerId): string

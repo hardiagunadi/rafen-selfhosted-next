@@ -4,9 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invoice {{ $invoice->invoice_number }}</title>
+    @php($bodyFontFamily = $settings?->browserInvoiceFontCssStack() ?? 'Arial, Helvetica, sans-serif')
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: Arial, sans-serif; font-size: 12px; background: #fff; color: #222; }
+        body { font-family: {!! $bodyFontFamily !!}; font-size: 12px; background: #fff; color: #222; }
 
         .page { max-width: 800px; margin: 20px auto; padding: 30px; border: 1px solid #ddd; }
 
@@ -169,8 +170,8 @@
                         <br><small style="color:#888">(Harga Promo)</small>
                     @endif
                 </td>
-                <td class="text-right">Rp {{ number_format($invoice->harga_dasar, 0, ',', '.') }}</td>
-                <td class="text-right">Rp {{ number_format($invoice->harga_dasar, 0, ',', '.') }}</td>
+                <td class="text-right">Rp {{ number_format($invoice->harga_dasar, 2, ',', '.') }}</td>
+                <td class="text-right">Rp {{ number_format($invoice->harga_dasar, 2, ',', '.') }}</td>
             </tr>
         </tbody>
         <tfoot>
@@ -180,13 +181,13 @@
                     PPN ({{ number_format($invoice->ppn_percent, 0) }}%)
                 </td>
                 <td class="text-right" style="border-top:1px solid #ccc; font-size:11px;">
-                    Rp {{ number_format($invoice->ppn_amount, 0, ',', '.') }}
+                    Rp {{ number_format($invoice->ppn_amount, 2, ',', '.') }}
                 </td>
             </tr>
             @endif
             <tr>
                 <td colspan="2" class="text-right">TOTAL</td>
-                <td class="text-right">Rp {{ number_format($invoice->total, 0, ',', '.') }}</td>
+                <td class="text-right">Rp {{ number_format($invoice->total, 2, ',', '.') }}</td>
             </tr>
         </tfoot>
     </table>
@@ -198,9 +199,9 @@
             @if($invoice->payment_channel ?? $invoice->payment_method)
                 &nbsp;&mdash;&nbsp; via {{ $invoice->payment_channel ?? $invoice->payment_method }}
             @endif
-            @if($invoice->payment_reference)
-                &nbsp;| Ref: {{ $invoice->payment_reference }}
-            @endif
+        @if($invoice->payment_reference)
+            &nbsp;| Ref: {{ $invoice->payment_reference }}
+        @endif
         </div>
     @elseif($bankAccounts->isNotEmpty())
         <div class="payment-section">

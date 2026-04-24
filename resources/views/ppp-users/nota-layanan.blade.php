@@ -1,305 +1,725 @@
-@extends('layouts.admin')
+<!DOCTYPE html>
+<html lang="id">
+@php
+    $editingServiceNote = $editingServiceNote ?? null;
+    $isEditingServiceNote = $editingServiceNote !== null;
+    $logo = $settings ? ($settings->invoice_logo ?: $settings->business_logo) : null;
+    $companyName = $settings && $settings->business_name
+        ? $settings->business_name
+        : ($pppUser->owner ? ($pppUser->owner->company_name ?? $pppUser->owner->name) : '');
+    $companyAddress = $settings ? trim((string) ($settings->business_address ?? '')) : '';
+    $companyPhone = $settings ? trim((string) ($settings->business_phone ?? '')) : '';
+    $footer = $settings ? trim((string) ($settings->invoice_footer ?? '')) : '';
+    $serviceType = in_array($pppUser->tipe_service, ['pppoe', 'hotspot'], true) ? $pppUser->tipe_service : 'general';
+    $formNoteType = old('note_type', $editingServiceNote?->note_type ?? $notaType);
+    $formPreset = $notaTypes[$formNoteType] ?? $notaDefaults;
+    $formItemLines = old('item_lines', $editingServiceNote?->item_lines ?? $formPreset['item_lines'] ?? []);
+    $bodyFontFamily = $settings?->browserInvoiceFontCssStack() ?? 'Arial, Helvetica, sans-serif';
 
-@section('title', $notaDefaults['label'])
+    if (! is_array($formItemLines)) {
+        $formItemLines = $formPreset['item_lines'] ?? [];
+    }
 
-@section('content')
-    @php
-        $oldItemLines = old('item_lines');
-        $itemLines = is_array($oldItemLines) && $oldItemLines !== [] ? $oldItemLines : $notaDefaults['item_lines'];
-    @endphp
+    while (count($formItemLines) < 4) {
+        $formItemLines[] = ['label' => '', 'amount' => 0];
+    }
 
+    $formDocumentTitle = old('document_title', $editingServiceNote?->document_title ?? $formPreset['document_title']);
+    $formSummaryTitle = old('summary_title', $editingServiceNote?->summary_title ?? $formPreset['summary_title']);
+    $formDocumentNumber = old('document_number', $editingServiceNote?->document_number ?? $defaultDocumentNumber);
+    $formNoteDate = old('note_date', $editingServiceNote?->note_date?->toDateString() ?? now()->toDateString());
+    $formPaymentMethod = old('payment_method', $editingServiceNote?->payment_method ?? 'cash');
+    $formShowServiceSection = (bool) old('show_service_section', $editingServiceNote?->show_service_section ?? $formPreset['show_service_section'] ?? true);
+    $formNotes = old('notes', $editingServiceNote?->notes ?? $formPreset['notes'] ?? '');
+    $formFooter = old('footer', $editingServiceNote?->footer ?? $footer);
+    $formAction = $isEditingServiceNote
+        ? route('service-notes.update', $editingServiceNote)
+        : route('ppp-users.service-notes.store', $pppUser);
+    $panelTitle = $isEditingServiceNote ? 'Edit Nota Belum Lunas' : 'Simpan Nota';
+    $panelSubtitle = $isEditingServiceNote
+        ? 'Perbarui nota yang masih menunggu pembayaran atau konfirmasi transfer.'
+        : 'Template cetak memakai layout nota lama agar tetap cocok dengan kertas yang sekarang dipakai.';
+    $submitButtonLabel = $isEditingServiceNote ? 'Update Nota & Cetak' : 'Simpan Nota & Cetak';
+    $transferAccounts = $paymentBankAccounts
+        ->map(fn ($bankAccount): array => [
+            'bank_name' => $bankAccount->bank_name,
+            'account_number' => $bankAccount->account_number,
+            'account_name' => $bankAccount->account_name,
+            'branch' => $bankAccount->branch,
+        ])
+        ->values()
+        ->all();
+    $hasTransferDestination = $transferAccounts !== [];
+    $previewRows = collect($formItemLines)
+        ->map(fn (array $item): array => [
+            'label' => trim((string) ($item['label'] ?? '')),
+            'amount' => (float) ($item['amount'] ?? 0),
+        ])
+        ->filter(fn (array $item): bool => $item['label'] !== '' || $item['amount'] > 0)
+        ->values();
+
+    if ($previewRows->isEmpty()) {
+        $previewRows = collect([['label' => 'Biaya Layanan', 'amount' => 0]]);
+    }
+
+    $previewTotal = (float) $previewRows->sum('amount');
+    $noteMetaRows = [
+        ['label' => 'No. Nota', 'value' => $formDocumentNumber],
+        ['label' => 'No. Pelanggan', 'value' => $pppUser->customer_id],
+        ['label' => 'Metode Bayar', 'value' => strtoupper($formPaymentMethod)],
+    ];
+    $noteCustomerRows = [
+        ['label' => 'Nama', 'value' => $pppUser->customer_name],
+        ['label' => 'Alamat', 'value' => $pppUser->alamat],
+        ['label' => 'No. HP', 'value' => $pppUser->nomor_hp],
+    ];
+    $noteServiceRows = [
+        ['label' => 'Paket', 'value' => $pppUser->profile?->name ?: '-'],
+        ['label' => 'Username', 'value' => $pppUser->username ?: '-'],
+        ['label' => 'IP Static', 'value' => $pppUser->ip_static],
+        ['label' => 'ODP / POP', 'value' => $pppUser->odp_pop],
+    ];
+    $noteAmountRows = $previewRows
+        ->map(fn (array $item): array => [
+            'label' => $item['label'],
+            'value' => number_format($item['amount'], 2, ',', '.'),
+        ])
+        ->all();
+    $noteAmountRows[] = [
+        'label' => $formPaymentMethod === 'transfer' ? 'Total Tagihan' : 'Total Dibayar',
+        'value' => number_format($previewTotal, 2, ',', '.'),
+        'row_class' => 'total-row',
+        'value_attr' => 'id="previewTotal"',
+    ];
+@endphp
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ $notaDefaults['label'] }} - {{ $pppUser->customer_name }}</title>
+    @include('service-notes.partials.legacy-style')
     <style>
-        .service-note-page { display: flex; flex-direction: column; gap: 1rem; }
-        .service-note-card { border: 1px solid var(--app-border, #d7e1ee); border-radius: 18px; background: #fff; box-shadow: var(--app-shadow-soft, 0 6px 14px rgba(15, 23, 42, 0.05)); }
-        .service-note-header { padding: 1.1rem 1.25rem; border-bottom: 1px solid var(--app-border, #d7e1ee); display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
-        .service-note-body { padding: 1.1rem 1.25rem; }
-        .service-note-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
-        .service-note-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
-        .service-note-field { display: flex; flex-direction: column; gap: .35rem; }
-        .service-note-field label { font-size: .78rem; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; color: var(--app-text-soft, #5b6b83); }
-        .service-note-presets { display: flex; flex-wrap: wrap; gap: .6rem; }
-        .service-note-preset { display: inline-flex; align-items: center; gap: .45rem; border-radius: 999px; padding: .45rem .85rem; border: 1px solid var(--app-border, #d7e1ee); background: #fff; color: var(--app-text, #0f172a); text-decoration: none; font-size: .85rem; font-weight: 600; }
-        .service-note-preset.is-active { background: #0369a1; border-color: #0369a1; color: #fff; }
-        .service-note-items { display: flex; flex-direction: column; gap: .75rem; }
-        .service-note-item-row { display: grid; grid-template-columns: minmax(0, 1fr) 180px 48px; gap: .75rem; align-items: end; }
-        .service-note-side-note { font-size: .82rem; color: var(--app-text-soft, #5b6b83); }
-        .service-note-actions { display: flex; justify-content: space-between; gap: .75rem; flex-wrap: wrap; margin-top: 1rem; }
-
-        @media (max-width: 992px) {
-            .service-note-grid,
-            .service-note-grid-3 { grid-template-columns: 1fr; }
+        body {
+            font-family: {!! $bodyFontFamily !!};
         }
 
-        @media (max-width: 768px) {
-            .service-note-item-row { grid-template-columns: 1fr; }
+        body {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        .workspace {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 20px;
+            display: grid;
+            grid-template-columns: 380px minmax(0, 1fr);
+            gap: 20px;
+            align-items: start;
+        }
+
+        .panel,
+        .preview-card {
+            background: #fff;
+            border-radius: 18px;
+            box-shadow: 0 18px 45px rgba(15, 23, 42, 0.12);
+        }
+
+        .panel {
+            padding: 18px;
+            position: sticky;
+            top: 20px;
+        }
+
+        .preview-card {
+            padding: 14px;
+        }
+
+        .panel-title {
+            margin: 0 0 4px;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .panel-subtitle {
+            margin: 0 0 18px;
+            color: #475569;
+            font-size: 13px;
+        }
+
+        .flash,
+        .error-box {
+            margin-bottom: 16px;
+            border-radius: 14px;
+            padding: 12px 14px;
+            font-size: 13px;
+        }
+
+        .flash {
+            background: #ecfeff;
+            border: 1px solid #99f6e4;
+            color: #115e59;
+        }
+
+        .error-box {
+            background: #fef2f2;
+            border: 1px solid #fecaca;
+            color: #b91c1c;
+        }
+
+        .error-box ul {
+            margin: 6px 0 0;
+            padding-left: 18px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .control-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .control-input,
+        .control-textarea,
+        .control-select,
+        .item-row input {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 14px;
+            color: #0f172a;
+            background: #fff;
+            outline: none;
+        }
+
+        .control-textarea {
+            min-height: 84px;
+            resize: vertical;
+        }
+
+        .control-input:focus,
+        .control-textarea:focus,
+        .control-select:focus,
+        .item-row input:focus {
+            border-color: #0d9488;
+            box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.14);
+        }
+
+        .preset-hint,
+        .helper-text {
+            color: #475569;
+            font-size: 12px;
+        }
+
+        .preset-hint {
+            margin: -6px 0 0;
+        }
+
+        .item-editor {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .item-row {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 120px;
+            gap: 10px;
+        }
+
+        .panel-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+
+        .action-button {
+            border: 0;
+            border-radius: 12px;
+            padding: 11px 16px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        .action-button-primary {
+            background: linear-gradient(135deg, #0f766e, #14b8a6);
+            color: #fff;
+        }
+
+        .action-button-secondary {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        @media (max-width: 960px) {
+            .workspace {
+                grid-template-columns: 1fr;
+            }
+
+            .panel {
+                position: static;
+            }
+        }
+
+        @media (max-width: 640px) {
+            .item-row {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media print {
+            body {
+                background: #fff;
+            }
+
+            .workspace {
+                display: block;
+                max-width: none;
+                padding: 0;
+            }
+
+            .panel {
+                display: none !important;
+            }
+
+            .preview-card {
+                box-shadow: none;
+                border-radius: 0;
+                padding: 0;
+            }
         }
     </style>
+</head>
+<body>
+<div class="workspace">
+    <form method="POST" action="{{ $formAction }}" class="panel" id="serviceNoteForm">
+        @csrf
+        @if ($isEditingServiceNote)
+            @method('PUT')
+        @endif
+        <input type="hidden" name="service_type" value="{{ $serviceType }}">
+        <input type="hidden" name="show_service_section" id="inputShowServiceSection" value="{{ $formShowServiceSection ? '1' : '0' }}">
+        <input type="hidden" name="item_lines" id="inputItemLinesPayload">
 
-    <div class="service-note-page">
-        <div class="alert alert-info mb-0">
-            Nota layanan ini akan disimpan sebagai pendapatan lokal self-hosted. Gunakan untuk aktivasi, pemasangan, perbaikan, atau biaya layanan lain di lapangan.
-        </div>
+        <h1 class="panel-title">{{ $panelTitle }}</h1>
+        <p class="panel-subtitle">{{ $panelSubtitle }}</p>
 
-        <div class="service-note-card">
-            <div class="service-note-header">
-                <div>
-                    <h3 class="mb-1">{{ $notaDefaults['label'] }}</h3>
-                    <p class="mb-0 text-muted">{{ $pppUser->customer_name }} · {{ $pppUser->customer_id }}</p>
-                </div>
-                <div class="d-flex flex-wrap" style="gap:.5rem;">
-                    <a href="{{ route('service-notes.index') }}" class="btn btn-outline-secondary">
-                        <i class="fas fa-history mr-1"></i> Riwayat Nota
-                    </a>
-                    <a href="{{ route('ppp-users.edit', $pppUser) }}" class="btn btn-outline-secondary">
-                        <i class="fas fa-arrow-left mr-1"></i> Kembali ke Pelanggan
-                    </a>
-                </div>
-            </div>
-            <div class="service-note-body">
-                <div class="service-note-presets mb-3">
-                    @foreach ($notaTypes as $key => $preset)
-                        <a href="{{ route('ppp-users.nota-layanan', ['pppUser' => $pppUser, 'type' => $key]) }}" class="service-note-preset {{ $notaType === $key ? 'is-active' : '' }}">
-                            <i class="fas fa-file-invoice"></i>
-                            <span>{{ $preset['label'] }}</span>
-                        </a>
+        @if (session('status'))
+            <div class="flash">{{ session('status') }}</div>
+        @endif
+
+        @if ($errors->any())
+            <div class="error-box">
+                Validasi belum lengkap.
+                <ul>
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
                     @endforeach
-                </div>
-
-                @if ($errors->any())
-                    <div class="alert alert-danger">
-                        <strong>Terdapat kesalahan:</strong>
-                        <ul class="mb-0 mt-2 pl-3">
-                            @foreach ($errors->all() as $error)
-                                <li>{{ $error }}</li>
-                            @endforeach
-                        </ul>
-                    </div>
-                @endif
-
-                <form method="POST" action="{{ route('ppp-users.service-notes.store', $pppUser) }}" id="serviceNoteForm">
-                    @csrf
-
-                    <div class="service-note-grid-3 mb-3">
-                        <div class="service-note-field">
-                            <label for="note_type">Jenis Nota</label>
-                            <select name="note_type" id="note_type" class="form-control">
-                                @foreach ($notaTypes as $key => $preset)
-                                    <option value="{{ $key }}" @selected(old('note_type', $notaType) === $key)>{{ $preset['label'] }}</option>
-                                @endforeach
-                            </select>
-                            <div class="service-note-side-note" id="presetDescription">{{ $notaDefaults['description'] }}</div>
-                        </div>
-                        <div class="service-note-field">
-                            <label for="document_number">Nomor Nota</label>
-                            <input type="text" class="form-control" id="document_number" name="document_number" value="{{ old('document_number', $defaultDocumentNumber) }}">
-                        </div>
-                        <div class="service-note-field">
-                            <label for="note_date">Tanggal Nota</label>
-                            <input type="date" class="form-control" id="note_date" name="note_date" value="{{ old('note_date', now()->toDateString()) }}">
-                        </div>
-                    </div>
-
-                    <div class="service-note-grid mb-3">
-                        <div class="service-note-field">
-                            <label for="document_title">Judul Dokumen</label>
-                            <input type="text" class="form-control" id="document_title" name="document_title" value="{{ old('document_title', $notaDefaults['document_title']) }}">
-                        </div>
-                        <div class="service-note-field">
-                            <label for="summary_title">Judul Ringkasan</label>
-                            <input type="text" class="form-control" id="summary_title" name="summary_title" value="{{ old('summary_title', $notaDefaults['summary_title']) }}">
-                        </div>
-                    </div>
-
-                    <div class="service-note-grid-3 mb-3">
-                        <div class="service-note-field">
-                            <label for="service_type">Jenis Service</label>
-                            <select name="service_type" id="service_type" class="form-control">
-                                <option value="general" @selected(old('service_type', $pppUser->tipe_service ?: 'pppoe') === 'general')>General</option>
-                                <option value="pppoe" @selected(old('service_type', $pppUser->tipe_service ?: 'pppoe') === 'pppoe')>PPPoE</option>
-                                <option value="hotspot" @selected(old('service_type') === 'hotspot')>Hotspot</option>
-                            </select>
-                        </div>
-                        <div class="service-note-field">
-                            <label for="payment_method">Metode Bayar</label>
-                            <select name="payment_method" id="payment_method" class="form-control">
-                                <option value="cash" @selected(old('payment_method', 'cash') === 'cash')>Cash</option>
-                                <option value="transfer" @selected(old('payment_method') === 'transfer')>Transfer</option>
-                                <option value="lainnya" @selected(old('payment_method') === 'lainnya')>Lainnya</option>
-                            </select>
-                        </div>
-                        <div class="service-note-field">
-                            <label>Tampilkan Data Layanan</label>
-                            <div class="form-check mt-2">
-                                <input class="form-check-input" type="checkbox" value="1" id="show_service_section" name="show_service_section" @checked(old('show_service_section', $notaDefaults['show_service_section']))>
-                                <label class="form-check-label" for="show_service_section">
-                                    Tampilkan paket, username, IP, dan ODP di nota
-                                </label>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-note-card mb-3" style="box-shadow:none;">
-                        <div class="service-note-header" style="padding:.9rem 1rem;">
-                            <div>
-                                <h5 class="mb-1">Item Biaya</h5>
-                                <p class="mb-0 text-muted">Minimal satu item biaya harus diisi.</p>
-                            </div>
-                            <button type="button" class="btn btn-outline-primary btn-sm" id="addItemLine">
-                                <i class="fas fa-plus mr-1"></i> Tambah Item
-                            </button>
-                        </div>
-                        <div class="service-note-body">
-                            <div class="service-note-items" id="itemLines">
-                                @foreach ($itemLines as $index => $itemLine)
-                                    <div class="service-note-item-row">
-                                        <div class="service-note-field">
-                                            <label>Nama Item</label>
-                                            <input type="text" class="form-control" name="item_lines[{{ $index }}][label]" value="{{ $itemLine['label'] ?? '' }}">
-                                        </div>
-                                        <div class="service-note-field">
-                                            <label>Nominal</label>
-                                            <input type="number" class="form-control" name="item_lines[{{ $index }}][amount]" value="{{ $itemLine['amount'] ?? 0 }}" min="0" step="0.01">
-                                        </div>
-                                        <button type="button" class="btn btn-outline-danger remove-item-line">
-                                            <i class="fas fa-trash"></i>
-                                        </button>
-                                    </div>
-                                @endforeach
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="service-note-grid mb-3">
-                        <div class="service-note-field">
-                            <label for="notes">Catatan</label>
-                            <textarea class="form-control" id="notes" name="notes" rows="4">{{ old('notes', $notaDefaults['notes']) }}</textarea>
-                        </div>
-                        <div class="service-note-field">
-                            <label for="footer">Footer</label>
-                            <textarea class="form-control" id="footer" name="footer" rows="4">{{ old('footer', 'Terima kasih atas pembayaran Anda.') }}</textarea>
-                        </div>
-                    </div>
-
-                    <div class="alert alert-secondary mb-0" id="transferInfo" style="{{ old('payment_method') === 'transfer' ? '' : 'display:none;' }}">
-                        @if ($paymentBankAccounts->isEmpty())
-                            Rekening pembayaran aktif belum tersedia. Tambahkan minimal satu rekening aktif di pengaturan tenant sebelum membuat nota transfer.
-                        @else
-                            <strong>Rekening aktif yang akan dilampirkan:</strong>
-                            <ul class="mb-0 mt-2 pl-3">
-                                @foreach ($paymentBankAccounts as $bankAccount)
-                                    <li>{{ $bankAccount->bank_name }} · {{ $bankAccount->account_number }} · {{ $bankAccount->account_name }}{{ $bankAccount->branch ? ' · '.$bankAccount->branch : '' }}</li>
-                                @endforeach
-                            </ul>
-                        @endif
-                    </div>
-
-                    <div class="service-note-actions">
-                        <div class="service-note-side-note">
-                            Pelanggan: <strong>{{ $pppUser->customer_name }}</strong> · Paket: <strong>{{ $pppUser->profile?->name ?? '-' }}</strong>
-                        </div>
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-save mr-1"></i> Simpan dan Cetak Nota
-                        </button>
-                    </div>
-                </form>
+                </ul>
             </div>
+        @endif
+
+        <div class="control-group">
+            <label class="control-label" for="inputNotaType">Jenis Nota</label>
+            <select id="inputNotaType" class="control-select" name="note_type">
+                @foreach ($notaTypes as $key => $preset)
+                    <option value="{{ $key }}" @selected($formNoteType === $key)>{{ $preset['label'] }}</option>
+                @endforeach
+            </select>
+            <p class="preset-hint" id="presetDescription">{{ $formPreset['description'] }}</p>
         </div>
-    </div>
 
-    <script>
-        const notePresets = @json($notaTypes);
-        const hasOldInput = @json(session()->hasOldInput());
-        const itemLinesContainer = document.getElementById('itemLines');
-        const noteTypeSelect = document.getElementById('note_type');
-        const paymentMethodSelect = document.getElementById('payment_method');
-        const transferInfo = document.getElementById('transferInfo');
-        const presetDescription = document.getElementById('presetDescription');
-        const documentTitleInput = document.getElementById('document_title');
-        const summaryTitleInput = document.getElementById('summary_title');
-        const notesInput = document.getElementById('notes');
-        const showServiceSectionInput = document.getElementById('show_service_section');
+        <div class="control-group">
+            <label class="control-label" for="inputDocumentTitle">Judul Nota</label>
+            <input id="inputDocumentTitle" class="control-input" type="text" name="document_title" value="{{ $formDocumentTitle }}" required>
+        </div>
 
-        function nextItemIndex() {
-            return itemLinesContainer.querySelectorAll('.service-note-item-row').length;
+        <div class="control-group">
+            <label class="control-label" for="inputSummaryTitle">Judul Rincian</label>
+            <input id="inputSummaryTitle" class="control-input" type="text" name="summary_title" value="{{ $formSummaryTitle }}" required>
+        </div>
+
+        <div class="control-group">
+            <label class="control-label" for="inputDocumentNumber">Nomor Nota</label>
+            <input id="inputDocumentNumber" class="control-input" type="text" name="document_number" value="{{ $formDocumentNumber }}" required>
+        </div>
+
+        <div class="control-group">
+            <label class="control-label" for="inputNoteDate">Tanggal Nota</label>
+            <input id="inputNoteDate" class="control-input" type="date" name="note_date" value="{{ $formNoteDate }}" required>
+        </div>
+
+        <div class="control-group">
+            <label class="control-label" for="inputPaymentMethod">Metode Pembayaran</label>
+            <select id="inputPaymentMethod" class="control-select" name="payment_method" required>
+                <option value="cash" @selected($formPaymentMethod === 'cash')>Cash</option>
+                <option value="transfer" @selected($formPaymentMethod === 'transfer')>Transfer</option>
+                <option value="lainnya" @selected($formPaymentMethod === 'lainnya')>Lainnya</option>
+            </select>
+            <span class="helper-text" id="paymentMethodHint">Pembayaran cash langsung masuk pendapatan. Jika memilih transfer, nota akan dibuat sebagai menunggu konfirmasi sampai dana diterima.</span>
+            @if (! $hasTransferDestination)
+                <span class="helper-text text-danger" id="transferDestinationWarning">Rekening pembayaran aktif belum tersedia. Jika memilih transfer, tambahkan minimal satu rekening pembayaran terlebih dahulu.</span>
+            @endif
+        </div>
+
+        <div class="control-group">
+            <span class="control-label">Rincian Biaya</span>
+            <div class="item-editor" id="itemEditor">
+                @foreach ($formItemLines as $index => $item)
+                    <div class="item-row">
+                        <input type="text" data-item-label value="{{ $item['label'] ?? '' }}" placeholder="Nama item {{ $index + 1 }}">
+                        <input type="number" data-item-amount min="0" step="1000" value="{{ (int) round((float) ($item['amount'] ?? 0)) }}" placeholder="Nominal">
+                    </div>
+                @endforeach
+            </div>
+            <span class="helper-text">Isi minimal satu item. Item kosong tidak akan disimpan.</span>
+        </div>
+
+        <div class="control-group">
+            <span class="control-label">Tampilan Nota</span>
+            <label class="mb-0 d-flex align-items-center" style="gap:.6rem;font-size:14px;font-weight:500;color:#0f172a;">
+                <input type="checkbox" id="toggleServiceSection" value="1" @checked($formShowServiceSection)>
+                <span>Tampilkan data layanan di nota utama</span>
+            </label>
+            <span class="helper-text">Nonaktifkan jika nota dipakai untuk pemasangan kabel, IP kamera, atau pekerjaan yang tidak perlu menampilkan paket, username, dan IP pelanggan.</span>
+        </div>
+
+        <div class="control-group">
+            <label class="control-label" for="inputNotes">Keterangan Tambahan</label>
+            <textarea id="inputNotes" class="control-textarea" name="notes" placeholder="Catatan transaksi atau detail pekerjaan">{{ $formNotes }}</textarea>
+        </div>
+
+        <div class="control-group">
+            <label class="control-label" for="inputFooter">Catatan Bawah</label>
+            <textarea id="inputFooter" class="control-textarea" name="footer" placeholder="Footer yang ikut tercetak">{{ $formFooter }}</textarea>
+        </div>
+
+        <div class="panel-actions">
+            <button type="submit" class="action-button action-button-primary">{{ $submitButtonLabel }}</button>
+            <button type="button" class="action-button action-button-secondary" onclick="window.print()">Cetak Draft</button>
+            <button type="button" class="action-button action-button-secondary" onclick="window.close()">Tutup</button>
+        </div>
+    </form>
+
+    <main class="preview-card">
+        @include('service-notes.partials.legacy-document', [
+            'documentAttributes' => [
+                'document_title' => 'id="previewDocumentTitle"',
+                'document_date' => 'id="previewDocumentDate"',
+                'summary_title' => 'id="previewSummaryTitle"',
+                'amount_rows' => 'id="previewItemRows"',
+                'in_words' => 'id="previewInWords"',
+                'service_wrapper' => 'id="previewServiceWrapper"',
+                'notes_wrapper' => 'id="previewNotesWrapper"',
+                'notes' => 'id="previewNotes"',
+                'footer_wrapper' => 'id="previewFooterWrapper"',
+                'footer' => 'id="previewFooter"',
+            ],
+            'noteLogo' => $logo ? Storage::url($logo) : null,
+            'noteCompanyName' => $companyName,
+            'noteCompanyAddress' => $companyAddress,
+            'noteCompanyPhone' => $companyPhone,
+            'noteDocumentTitle' => $formDocumentTitle,
+            'noteDateLabel' => 'Tanggal Nota',
+            'noteDateText' => \Carbon\Carbon::parse($formNoteDate)->translatedFormat('d F Y'),
+            'noteMetaRows' => $noteMetaRows,
+            'noteCustomerRows' => $noteCustomerRows,
+            'noteServiceSectionTitle' => 'DATA LAYANAN',
+            'noteServiceSectionVisible' => $formShowServiceSection,
+            'noteServiceRows' => $noteServiceRows,
+            'noteSummaryTitle' => $formSummaryTitle,
+            'noteAmountRows' => $noteAmountRows,
+            'noteInWordsText' => ucfirst(terbilang((int) round($previewTotal))).' rupiah',
+            'noteNotesText' => trim($formNotes),
+            'noteFooterText' => $formFooter,
+            'noteBottomText' => 'Dokumen dicetak dari nota elektronik - '.$companyName,
+        ])
+
+        @if ($hasTransferDestination)
+            @include('service-notes.partials.transfer-document', [
+                'documentAttributes' => [
+                    'sheet_wrapper' => 'id="previewTransferSheet" style="'.($formPaymentMethod === 'transfer' ? '' : 'display:none;').'"',
+                    'document_number' => 'id="previewTransferDocumentNumber"',
+                    'total' => 'id="previewTransferTotal"',
+                ],
+                'transferLogo' => $logo ? Storage::url($logo) : null,
+                'transferCompanyName' => $companyName,
+                'transferCompanyAddress' => $companyAddress,
+                'transferCompanyPhone' => $companyPhone,
+                'transferDocumentNumber' => $formDocumentNumber,
+                'transferCustomerName' => $pppUser->customer_name,
+                'transferCustomerId' => $pppUser->customer_id,
+                'transferTotalText' => 'Rp '.number_format($previewTotal, 0, ',', '.'),
+                'transferAccounts' => $transferAccounts,
+                'transferBottomText' => 'Lampiran transfer pembayaran - '.$companyName,
+            ])
+        @endif
+    </main>
+</div>
+
+<script>
+    const notaPresets = @json($notaTypes);
+    const inputNotaType = document.getElementById('inputNotaType');
+    const inputDocumentTitle = document.getElementById('inputDocumentTitle');
+    const inputSummaryTitle = document.getElementById('inputSummaryTitle');
+    const inputDocumentNumber = document.getElementById('inputDocumentNumber');
+    const inputNoteDate = document.getElementById('inputNoteDate');
+    const inputPaymentMethod = document.getElementById('inputPaymentMethod');
+    const inputShowServiceSection = document.getElementById('inputShowServiceSection');
+    const inputNotes = document.getElementById('inputNotes');
+    const inputFooter = document.getElementById('inputFooter');
+    const inputItemLinesPayload = document.getElementById('inputItemLinesPayload');
+    const itemEditor = document.getElementById('itemEditor');
+    const presetDescription = document.getElementById('presetDescription');
+    const paymentMethodHint = document.getElementById('paymentMethodHint');
+    const toggleServiceSection = document.getElementById('toggleServiceSection');
+    const previewDocumentTitle = document.getElementById('previewDocumentTitle');
+    const previewDocumentDate = document.getElementById('previewDocumentDate');
+    const previewSummaryTitle = document.getElementById('previewSummaryTitle');
+    const previewItemRows = document.getElementById('previewItemRows');
+    const previewInWords = document.getElementById('previewInWords');
+    const previewServiceWrapper = document.getElementById('previewServiceWrapper');
+    const previewTransferSheet = document.getElementById('previewTransferSheet');
+    const previewTransferDocumentNumber = document.getElementById('previewTransferDocumentNumber');
+    const previewTransferTotal = document.getElementById('previewTransferTotal');
+    const previewNotesWrapper = document.getElementById('previewNotesWrapper');
+    const previewNotes = document.getElementById('previewNotes');
+    const previewFooterWrapper = document.getElementById('previewFooterWrapper');
+    const previewFooter = document.getElementById('previewFooter');
+    const serviceNoteForm = document.getElementById('serviceNoteForm');
+    const hasTransferDestination = @json($hasTransferDestination);
+
+    function getPreset(type) {
+        return notaPresets[type] || notaPresets.aktivasi;
+    }
+
+    function formatDateLabel(value) {
+        if (!value) {
+            return '-';
         }
 
-        function buildItemRow(index, item = {label: '', amount: 0}) {
-            const row = document.createElement('div');
-            row.className = 'service-note-item-row';
-            row.innerHTML = `
-                <div class="service-note-field">
-                    <label>Nama Item</label>
-                    <input type="text" class="form-control" name="item_lines[${index}][label]" value="${item.label ?? ''}">
-                </div>
-                <div class="service-note-field">
-                    <label>Nominal</label>
-                    <input type="number" class="form-control" name="item_lines[${index}][amount]" value="${item.amount ?? 0}" min="0" step="0.01">
-                </div>
-                <button type="button" class="btn btn-outline-danger remove-item-line">
-                    <i class="fas fa-trash"></i>
-                </button>
-            `;
+        const parts = value.split('-');
 
-            return row;
+        if (parts.length !== 3) {
+            return value;
         }
 
-        function refreshRemoveButtons() {
-            itemLinesContainer.querySelectorAll('.remove-item-line').forEach(function (button) {
-                button.onclick = function () {
-                    if (itemLinesContainer.querySelectorAll('.service-note-item-row').length === 1) {
-                        return;
-                    }
+        const date = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
 
-                    button.closest('.service-note-item-row').remove();
-                };
-            });
+        if (Number.isNaN(date.getTime())) {
+            return value;
         }
 
-        function applyPreset(type) {
-            const preset = notePresets[type];
+        return date.toLocaleDateString('id-ID', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+        });
+    }
 
-            if (!preset) {
-                return;
+    function formatMoney(amount) {
+        const normalized = Math.max(0, Number(amount || 0));
+        return normalized.toLocaleString('id-ID', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+    }
+
+    function ucfirst(value) {
+        if (!value) {
+            return value;
+        }
+
+        return value.charAt(0).toUpperCase() + value.slice(1);
+    }
+
+    function terbilang(value) {
+        const number = Math.max(0, Math.floor(value));
+        const satuan = ['', 'satu', 'dua', 'tiga', 'empat', 'lima', 'enam', 'tujuh', 'delapan', 'sembilan', 'sepuluh', 'sebelas'];
+
+        if (number < 12) {
+            return satuan[number];
+        }
+
+        if (number < 20) {
+            return terbilang(number - 10) + ' belas';
+        }
+
+        if (number < 100) {
+            return terbilang(Math.floor(number / 10)) + ' puluh' + (number % 10 ? ' ' + terbilang(number % 10) : '');
+        }
+
+        if (number < 200) {
+            return 'seratus' + (number % 100 ? ' ' + terbilang(number % 100) : '');
+        }
+
+        if (number < 1000) {
+            return terbilang(Math.floor(number / 100)) + ' ratus' + (number % 100 ? ' ' + terbilang(number % 100) : '');
+        }
+
+        if (number < 2000) {
+            return 'seribu' + (number % 1000 ? ' ' + terbilang(number % 1000) : '');
+        }
+
+        if (number < 1000000) {
+            return terbilang(Math.floor(number / 1000)) + ' ribu' + (number % 1000 ? ' ' + terbilang(number % 1000) : '');
+        }
+
+        if (number < 1000000000) {
+            return terbilang(Math.floor(number / 1000000)) + ' juta' + (number % 1000000 ? ' ' + terbilang(number % 1000000) : '');
+        }
+
+        return terbilang(Math.floor(number / 1000000000)) + ' miliar' + (number % 1000000000 ? ' ' + terbilang(number % 1000000000) : '');
+    }
+
+    function readItemRows() {
+        const rows = [];
+        const itemRows = itemEditor.querySelectorAll('.item-row');
+
+        itemRows.forEach((row) => {
+            const label = row.querySelector('[data-item-label]').value.trim();
+            const amount = Number(row.querySelector('[data-item-amount]').value || 0);
+
+            if (label !== '' || amount > 0) {
+                rows.push({
+                    label: label !== '' ? label : 'Biaya Layanan',
+                    amount,
+                });
             }
-
-            presetDescription.textContent = preset.description || '';
-            documentTitleInput.value = preset.document_title || '';
-            summaryTitleInput.value = preset.summary_title || '';
-            notesInput.value = preset.notes || '';
-            showServiceSectionInput.checked = !!preset.show_service_section;
-            itemLinesContainer.innerHTML = '';
-
-            (preset.item_lines || []).forEach(function (item, index) {
-                itemLinesContainer.appendChild(buildItemRow(index, item));
-            });
-
-            if ((preset.item_lines || []).length === 0) {
-                itemLinesContainer.appendChild(buildItemRow(0));
-            }
-
-            refreshRemoveButtons();
-        }
-
-        function toggleTransferInfo() {
-            transferInfo.style.display = paymentMethodSelect.value === 'transfer' ? '' : 'none';
-        }
-
-        document.getElementById('addItemLine').addEventListener('click', function () {
-            itemLinesContainer.appendChild(buildItemRow(nextItemIndex()));
-            refreshRemoveButtons();
         });
 
-        noteTypeSelect.addEventListener('change', function () {
-            applyPreset(noteTypeSelect.value);
+        return rows;
+    }
+
+    function syncItemPayload() {
+        inputItemLinesPayload.value = JSON.stringify(readItemRows());
+    }
+
+    function renderMetaRows() {
+        const metaTable = previewDocumentDate.closest('.top-info').querySelector('td:last-child table');
+        metaTable.innerHTML = ''
+            + `<tr><td>No. Nota</td><td>: <strong>${inputDocumentNumber.value.trim() || '-'}</strong></td></tr>`
+            + `<tr><td>No. Pelanggan</td><td>: <strong>{{ $pppUser->customer_id ?: '-' }}</strong></td></tr>`
+            + `<tr><td>Metode Bayar</td><td>: <strong>${inputPaymentMethod.value.toUpperCase()}</strong></td></tr>`;
+    }
+
+    function renderPreview() {
+        const selectedPreset = getPreset(inputNotaType.value);
+        const rows = readItemRows();
+        const effectiveRows = rows.length > 0 ? rows : [{ label: 'Biaya Layanan', amount: 0 }];
+        const total = effectiveRows.reduce((carry, item) => carry + item.amount, 0);
+
+        presetDescription.textContent = selectedPreset.description;
+        previewDocumentTitle.textContent = inputDocumentTitle.value.trim() || selectedPreset.document_title;
+        previewDocumentDate.textContent = formatDateLabel(inputNoteDate.value);
+        previewSummaryTitle.textContent = inputSummaryTitle.value.trim() || selectedPreset.summary_title;
+        previewItemRows.innerHTML = '';
+
+        effectiveRows.forEach((item) => {
+            const tr = document.createElement('tr');
+            const labelCell = document.createElement('td');
+            const amountCell = document.createElement('td');
+
+            labelCell.className = 'label';
+            amountCell.className = 'value';
+            labelCell.textContent = item.label;
+            amountCell.textContent = formatMoney(item.amount);
+
+            tr.appendChild(labelCell);
+            tr.appendChild(amountCell);
+            previewItemRows.appendChild(tr);
         });
 
-        paymentMethodSelect.addEventListener('change', toggleTransferInfo);
+        const noteText = inputNotes.value.trim();
+        const isTransfer = inputPaymentMethod.value === 'transfer';
+        const showServiceSection = toggleServiceSection.checked;
+        const totalRowLabel = isTransfer ? 'Total Tagihan' : 'Total Dibayar';
+        const totalRow = document.createElement('tr');
+        totalRow.className = 'total-row';
+        totalRow.innerHTML = `<td class="label">${totalRowLabel}</td><td class="value" id="previewTotal">${formatMoney(total)}</td>`;
+        previewItemRows.appendChild(totalRow);
 
-        refreshRemoveButtons();
-        toggleTransferInfo();
-
-        if (!hasOldInput) {
-            applyPreset(noteTypeSelect.value);
+        previewInWords.textContent = ucfirst(terbilang(total || 0)) + ' rupiah';
+        inputShowServiceSection.value = showServiceSection ? '1' : '0';
+        previewServiceWrapper.style.display = showServiceSection ? 'block' : 'none';
+        if (previewTransferDocumentNumber) {
+            previewTransferDocumentNumber.textContent = inputDocumentNumber.value.trim() || '-';
         }
-    </script>
-@endsection
+
+        if (previewTransferTotal) {
+            previewTransferTotal.textContent = 'Rp ' + formatMoney(total).replace(',00', '');
+        }
+
+        if (previewTransferSheet) {
+            previewTransferSheet.style.display = isTransfer && hasTransferDestination ? 'block' : 'none';
+        }
+        previewNotes.textContent = noteText;
+        previewNotesWrapper.style.display = noteText !== '' ? 'block' : 'none';
+        previewFooter.textContent = inputFooter.value.trim();
+        previewFooterWrapper.style.display = inputFooter.value.trim() !== '' ? 'block' : 'none';
+        paymentMethodHint.textContent = isTransfer
+            ? (hasTransferDestination
+                ? 'Nota transfer akan disimpan sebagai menunggu konfirmasi dan menambahkan lampiran daftar rekening pembayaran.'
+                : 'Rekening pembayaran aktif belum tersedia. Tambahkan minimal satu rekening pembayaran sebelum menyimpan nota transfer.')
+            : 'Pembayaran cash langsung masuk ke ringkasan pemasukan teknisi.';
+        renderMetaRows();
+        syncItemPayload();
+    }
+
+    function applyPreset(type) {
+        const preset = getPreset(type);
+        const itemRows = itemEditor.querySelectorAll('.item-row');
+
+        inputDocumentTitle.value = preset.document_title;
+        inputSummaryTitle.value = preset.summary_title;
+        toggleServiceSection.checked = Boolean(preset.show_service_section ?? true);
+        inputNotes.value = preset.notes || '';
+
+        itemRows.forEach((row, index) => {
+            const item = (preset.item_lines || [])[index] || { label: '', amount: 0 };
+            row.querySelector('[data-item-label]').value = item.label || '';
+            row.querySelector('[data-item-amount]').value = Number(item.amount || 0);
+        });
+
+        renderPreview();
+    }
+
+    [
+        inputDocumentTitle,
+        inputSummaryTitle,
+        inputDocumentNumber,
+        inputNoteDate,
+        inputPaymentMethod,
+        toggleServiceSection,
+        inputNotes,
+        inputFooter,
+    ].forEach((element) => {
+        element.addEventListener('input', renderPreview);
+    });
+
+    itemEditor.querySelectorAll('[data-item-label], [data-item-amount]').forEach((element) => {
+        element.addEventListener('input', renderPreview);
+    });
+
+    inputNotaType.addEventListener('change', function () {
+        applyPreset(this.value);
+    });
+
+    serviceNoteForm.addEventListener('submit', function () {
+        syncItemPayload();
+    });
+
+    renderPreview();
+</script>
+</body>
+</html>

@@ -5,10 +5,19 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 
 class TenantSettings extends Model
 {
     use HasFactory;
+
+    public const BROWSER_INVOICE_FONT_DRAFT = 'draft';
+
+    public const BROWSER_INVOICE_FONT_ROMAN = 'roman';
+
+    public const BROWSER_INVOICE_FONT_SANS_SERIF = 'sans_serif';
+
+    public const DEFAULT_BROWSER_INVOICE_FONT = self::BROWSER_INVOICE_FONT_SANS_SERIF;
 
     public const TEMPLATE_ROTATION_SEPARATOR = '---';
 
@@ -33,6 +42,7 @@ class TenantSettings extends Model
         'invoice_prefix',
         'invoice_footer',
         'invoice_notes',
+        'browser_invoice_font',
         'enable_qris_payment',
         'enable_va_payment',
         'enable_manual_payment',
@@ -171,6 +181,43 @@ class TenantSettings extends Model
     public function isShiftModuleEnabled(): bool
     {
         return (bool) $this->shift_feature_enabled;
+    }
+
+    public function resolvedBrowserInvoiceFont(): string
+    {
+        return in_array($this->browser_invoice_font, [
+            self::BROWSER_INVOICE_FONT_DRAFT,
+            self::BROWSER_INVOICE_FONT_ROMAN,
+            self::BROWSER_INVOICE_FONT_SANS_SERIF,
+        ], true)
+            ? (string) $this->browser_invoice_font
+            : self::DEFAULT_BROWSER_INVOICE_FONT;
+    }
+
+    public function browserInvoiceFontCssStack(): string
+    {
+        return self::browserInvoiceFontCssStackFor($this->resolvedBrowserInvoiceFont());
+    }
+
+    public static function browserInvoiceFontCssStackFor(string $font): string
+    {
+        return match ($font) {
+            self::BROWSER_INVOICE_FONT_DRAFT => '"Courier New", Courier, monospace',
+            self::BROWSER_INVOICE_FONT_ROMAN => '"Times New Roman", Times, serif',
+            default => 'Arial, Helvetica, sans-serif',
+        };
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function browserInvoiceFontOptions(): array
+    {
+        return [
+            self::BROWSER_INVOICE_FONT_DRAFT => 'Draft',
+            self::BROWSER_INVOICE_FONT_ROMAN => 'Roman',
+            self::BROWSER_INVOICE_FONT_SANS_SERIF => 'Sans Serif',
+        ];
     }
 
     public function getIsolirPageTitle(): string
@@ -480,16 +527,33 @@ class TenantSettings extends Model
 
     public static function getOrCreate(int $userId): self
     {
+        $defaults = [
+            'invoice_prefix' => 'INV',
+            'browser_invoice_font' => self::DEFAULT_BROWSER_INVOICE_FONT,
+            'enable_manual_payment' => true,
+            'payment_expiry_hours' => 24,
+            'auto_isolate_unpaid' => true,
+            'grace_period_days' => 3,
+            'module_hotspot_enabled' => true,
+            'wa_antispam_enabled' => true,
+            'wa_antispam_delay_ms' => self::SAFE_WA_ANTISPAM_DELAY_MS,
+            'wa_antispam_max_per_minute' => self::SAFE_WA_ANTISPAM_MAX_PER_MINUTE,
+            'wa_blast_multi_device' => true,
+            'wa_blast_message_variation' => true,
+            'wa_blast_delay_min_ms' => self::SAFE_WA_BLAST_DELAY_MIN_MS,
+            'wa_blast_delay_max_ms' => self::SAFE_WA_BLAST_DELAY_MAX_MS,
+            'wa_msg_randomize' => true,
+        ];
+
+        $defaults = array_filter(
+            $defaults,
+            static fn (string $column): bool => Schema::hasColumn('tenant_settings', $column),
+            ARRAY_FILTER_USE_KEY
+        );
+
         return static::firstOrCreate(
             ['user_id' => $userId],
-            [
-                'invoice_prefix' => 'INV',
-                'enable_manual_payment' => true,
-                'payment_expiry_hours' => 24,
-                'auto_isolate_unpaid' => true,
-                'grace_period_days' => 3,
-                'module_hotspot_enabled' => true,
-            ]
+            $defaults
         );
     }
 }

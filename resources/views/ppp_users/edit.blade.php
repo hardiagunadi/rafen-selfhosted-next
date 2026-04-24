@@ -1036,6 +1036,12 @@ function formatBiayaAktivasi(el) {
                 })
                 .fail(function () { window.AppAjax.showToast('Gagal mengubah status.', 'danger'); });
         });
+
+        document.addEventListener('rafen:ajax-success', function () {
+            if (invoiceDtInitialized && $.fn.DataTable.isDataTable('#invoice-dt')) {
+                $('#invoice-dt').DataTable().ajax.reload(null, false);
+            }
+        });
     </script>
 
     {{-- CPE Management Scripts --}}

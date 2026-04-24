@@ -525,7 +525,7 @@
         </div>
 
         <div class="row">
-            <div class="col-12 mb-3">
+            <div class="col-12 mb-3" data-network-performance-layout="full">
                 <div class="card dashboard-panel">
                     <div class="card-header">
                         <h5 class="panel-title">Performa Jaringan</h5>

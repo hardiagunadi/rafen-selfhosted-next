@@ -83,6 +83,7 @@ class TenantSettingsController extends Controller
             'invoice_prefix' => 'nullable|string|max:10',
             'invoice_footer' => 'nullable|string|max:1000',
             'invoice_notes' => 'nullable|string|max:1000',
+            'browser_invoice_font' => 'nullable|string|in:draft,roman,sans_serif',
             'billing_date' => 'nullable|integer|min:1|max:28',
         ], [
             'portal_slug.regex' => 'Slug hanya boleh berisi huruf kecil, angka, dan tanda hubung (-).',

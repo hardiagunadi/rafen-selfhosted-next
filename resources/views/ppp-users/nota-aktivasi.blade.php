@@ -1,5 +1,9 @@
 <!DOCTYPE html>
 <html lang="id">
+@php
+    $settings = $settings ?? null;
+    $bodyFontFamily = $settings?->browserInvoiceFontCssStack() ?? 'Arial, Helvetica, sans-serif';
+@endphp
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -171,11 +175,15 @@
         }
     </style>
 @endverbatim
+    <style>
+        body {
+            font-family: {!! $bodyFontFamily !!};
+        }
+    </style>
 </head>
 <body>
 
 @php
-    $settings  = $settings ?? null;
     $logo      = $settings ? ($settings->invoice_logo ?: $settings->business_logo) : null;
     $coName    = $settings && $settings->business_name
                     ? $settings->business_name

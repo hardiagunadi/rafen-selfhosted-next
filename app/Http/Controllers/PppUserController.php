@@ -23,6 +23,7 @@ use App\Services\RadiusReplySynchronizer;
 use App\Services\WaNotificationService;
 use App\Traits\LogsActivity;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -80,7 +81,9 @@ class PppUserController extends Controller
 
         $filtered = (clone $query)->count();
 
-        $users = $query->latest()->skip($start)->take($length > 0 ? $length : 10)->get();
+        $this->applyDatatableOrdering($query, $request);
+
+        $users = $query->skip($start)->take($length > 0 ? $length : 10)->get();
 
         // Fetch active sessions for this batch of users in one query
         $usernames = $users->pluck('username')->filter()->values()->all();
@@ -235,6 +238,52 @@ class PppUserController extends Controller
         })->values()->all();
 
         return response()->json(['data' => $data]);
+    }
+
+    private function applyDatatableOrdering(Builder $query, Request $request): void
+    {
+        $orderColumnIndex = $request->input('order.0.column');
+        $orderDirection = strtolower((string) $request->input('order.0.dir', 'asc'));
+        $orderDirection = in_array($orderDirection, ['asc', 'desc'], true) ? $orderDirection : 'asc';
+
+        $columnMap = [
+            'customer_id' => 'customer_id',
+            'diperpanjang' => 'updated_at',
+            'jatuh_tempo' => 'jatuh_tempo',
+        ];
+
+        if (! ctype_digit((string) $orderColumnIndex)) {
+            $this->applyDefaultDatatableOrdering($query);
+
+            return;
+        }
+
+        $columnKey = data_get($request->input('columns', []), sprintf('%d.data', (int) $orderColumnIndex));
+        $databaseColumn = $columnMap[$columnKey] ?? null;
+
+        if ($databaseColumn === null) {
+            $this->applyDefaultDatatableOrdering($query);
+
+            return;
+        }
+
+        if ($databaseColumn === 'jatuh_tempo') {
+            $query->orderByRaw('jatuh_tempo IS NULL ASC')
+                ->orderBy($databaseColumn, $orderDirection)
+                ->orderByDesc('id');
+
+            return;
+        }
+
+        $query->orderBy($databaseColumn, $orderDirection)
+            ->orderByDesc('id');
+    }
+
+    private function applyDefaultDatatableOrdering(Builder $query): void
+    {
+        $query->orderByRaw('jatuh_tempo IS NULL ASC')
+            ->orderBy('jatuh_tempo')
+            ->orderByDesc('id');
     }
 
     /**
@@ -692,9 +741,23 @@ class PppUserController extends Controller
             abort(403);
         }
 
-        $this->createInvoiceForUser($pppUser, null, true);
+        $invoice = $this->createInvoiceForUser(
+            $pppUser,
+            $this->resolveManualInvoiceDueDate($pppUser),
+            true
+        );
 
-        return response()->json(['status' => 'Tagihan berhasil ditambahkan.']);
+        if (! $invoice) {
+            return response()->json([
+                'error' => 'Tagihan tidak dapat ditambahkan karena pelanggan belum memiliki profil paket aktif.',
+            ], 422);
+        }
+
+        return response()->json([
+            'status' => 'Tagihan berhasil ditambahkan.',
+            'invoice_number' => $invoice->invoice_number,
+            'due_date' => $invoice->due_date?->toDateString(),
+        ]);
     }
 
     public function disconnect(PppUser $pppUser): JsonResponse
@@ -778,108 +841,94 @@ class PppUserController extends Controller
     {
         /** @var User $user */
         $user = $request->user();
-        $validated = $request->validated();
-        $itemLines = collect($validated['item_lines'] ?? [])
-            ->map(function (array $item): array {
-                return [
-                    'label' => trim((string) ($item['label'] ?? '')),
-                    'amount' => round((float) ($item['amount'] ?? 0), 2),
-                ];
-            })
-            ->filter(fn (array $item): bool => $item['label'] !== '' || $item['amount'] > 0)
-            ->values();
+        $attributes = $this->buildServiceNoteAttributes(
+            user: $user,
+            pppUser: $pppUser,
+            validated: $request->validated(),
+        );
 
-        if ($itemLines->isEmpty()) {
-            throw ValidationException::withMessages([
-                'item_lines' => 'Minimal 1 item biaya harus diisi.',
-            ]);
-        }
-
-        $subtotal = (float) $itemLines->sum('amount');
-
-        if ($subtotal <= 0) {
-            throw ValidationException::withMessages([
-                'item_lines' => 'Total nota harus lebih dari nol.',
-            ]);
-        }
-
-        $documentNumber = trim((string) ($validated['document_number'] ?? ''));
-
-        if ($documentNumber === '' || ServiceNote::query()->where('owner_id', $pppUser->owner_id)->where('document_number', $documentNumber)->exists()) {
-            $documentNumber = ServiceNote::generateNumber((int) $pppUser->owner_id);
-        }
-
-        $serviceType = in_array($validated['service_type'], ['pppoe', 'hotspot'], true)
-            ? $validated['service_type']
-            : 'general';
-        $paymentMethod = $validated['payment_method'];
-        $transferAccounts = [];
-
-        if ($paymentMethod === 'transfer') {
-            $transferAccounts = BankAccount::query()
-                ->where('user_id', $pppUser->owner_id)
-                ->where('is_active', true)
-                ->orderByDesc('is_primary')
-                ->orderByDesc('id')
-                ->get(['bank_name', 'account_number', 'account_name', 'branch'])
-                ->map(fn (BankAccount $bankAccount): array => [
-                    'bank_name' => $bankAccount->bank_name,
-                    'account_number' => $bankAccount->account_number,
-                    'account_name' => $bankAccount->account_name,
-                    'branch' => $bankAccount->branch,
-                ])
-                ->values()
-                ->all();
-
-            if ($transferAccounts === []) {
-                throw ValidationException::withMessages([
-                    'payment_method' => 'Rekening pembayaran aktif belum tersedia. Tambahkan minimal satu rekening pembayaran terlebih dahulu sebelum membuat nota transfer.',
-                ]);
-            }
-        }
-
-        $paidAt = Carbon::parse((string) $validated['note_date'])
-            ->setTimeFrom(now());
-
-        $serviceNote = ServiceNote::query()->create([
-            'owner_id' => $pppUser->owner_id,
-            'ppp_user_id' => $pppUser->id,
-            'created_by' => $user->id,
-            'paid_by' => $user->id,
-            'note_type' => $validated['note_type'],
-            'document_number' => $documentNumber,
-            'document_title' => trim((string) $validated['document_title']),
-            'summary_title' => trim((string) $validated['summary_title']),
-            'service_type' => $serviceType,
-            'status' => 'paid',
-            'note_date' => $validated['note_date'],
-            'customer_id' => $pppUser->customer_id,
-            'customer_name' => $pppUser->customer_name,
-            'customer_phone' => $pppUser->nomor_hp,
-            'customer_address' => $pppUser->alamat,
-            'package_name' => $pppUser->profile?->name,
-            'item_lines' => $itemLines->all(),
-            'subtotal' => $subtotal,
-            'total' => $subtotal,
-            'payment_method' => $paymentMethod,
-            'transfer_accounts' => $transferAccounts !== [] ? $transferAccounts : null,
-            'show_service_section' => (bool) ($validated['show_service_section'] ?? true),
-            'cash_received' => $paymentMethod === 'cash' ? $subtotal : null,
-            'notes' => $validated['notes'] ?? null,
-            'footer' => $validated['footer'] ?? null,
-            'paid_at' => $paidAt,
-            'printed_at' => now(),
-        ]);
+        $serviceNote = ServiceNote::query()->create($attributes);
 
         $this->logActivity('service_note_created', 'ServiceNote', $serviceNote->id, $serviceNote->document_number, (int) $serviceNote->owner_id, [
             'ppp_user_id' => $pppUser->id,
             'total' => $serviceNote->total,
             'note_type' => $serviceNote->note_type,
+            'status' => $serviceNote->status,
         ]);
 
         return redirect()
             ->route('service-notes.print', $serviceNote)
-            ->with('status', 'Nota layanan berhasil disimpan sebagai pendapatan.');
+            ->with(
+                'status',
+                $serviceNote->payment_method === 'transfer'
+                    ? 'Nota layanan transfer berhasil dibuat dan menunggu konfirmasi penerimaan dana.'
+                    : 'Nota layanan berhasil disimpan sebagai pendapatan.'
+            );
+    }
+
+    public function editServiceNote(ServiceNote $serviceNote): View
+    {
+        /** @var User $user */
+        $user = auth()->user();
+
+        $serviceNote->loadMissing(['pppUser.profile', 'pppUser.owner']);
+
+        if (! $serviceNote->isPending()) {
+            abort(404);
+        }
+
+        $pppUser = $serviceNote->pppUser;
+
+        if (! $pppUser) {
+            abort(404);
+        }
+
+        $this->authorizeServiceNoteWorkspace($user, $pppUser, $serviceNote);
+
+        return $this->buildNotaLayananView($pppUser, $serviceNote->note_type, $serviceNote);
+    }
+
+    public function updateServiceNote(StoreServiceNoteRequest $request, ServiceNote $serviceNote): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $serviceNote->loadMissing(['pppUser.profile']);
+
+        if (! $serviceNote->isPending()) {
+            abort(404);
+        }
+
+        $pppUser = $serviceNote->pppUser;
+
+        if (! $pppUser) {
+            abort(404);
+        }
+
+        $attributes = $this->buildServiceNoteAttributes(
+            user: $user,
+            pppUser: $pppUser,
+            validated: $request->validated(),
+            existingServiceNote: $serviceNote,
+        );
+
+        $serviceNote->update($attributes);
+
+        $this->logActivity('service_note_updated', 'ServiceNote', $serviceNote->id, $serviceNote->document_number, (int) $serviceNote->owner_id, [
+            'ppp_user_id' => $pppUser->id,
+            'total' => $serviceNote->total,
+            'note_type' => $serviceNote->note_type,
+            'status' => $serviceNote->status,
+        ]);
+
+        return redirect()
+            ->route('service-notes.print', $serviceNote)
+            ->with(
+                'status',
+                $serviceNote->payment_method === 'transfer'
+                    ? 'Nota layanan transfer berhasil diperbarui dan masih menunggu konfirmasi penerimaan dana.'
+                    : 'Nota layanan berhasil diperbarui dan sudah tercatat sebagai pendapatan.'
+            );
     }
 
     /**
@@ -908,8 +957,15 @@ class PppUserController extends Controller
         }
 
         if (($data['metode_login'] ?? '') === 'username_equals_password') {
-            $data['ppp_password'] = $data['username'] ?? $data['ppp_password'] ?? null;
-            $data['password_clientarea'] = $data['password_clientarea'] ?? $data['username'] ?? null;
+            $username = $data['username'] ?? null;
+
+            if (empty($data['ppp_password'])) {
+                $data['ppp_password'] = $username;
+            }
+
+            if (empty($data['password_clientarea'])) {
+                $data['password_clientarea'] = $username;
+            }
         }
 
         $ownerId = $data['owner_id'] ?? $existing?->owner_id;
@@ -1214,6 +1270,25 @@ class PppUserController extends Controller
             ->delete();
     }
 
+    private function resolveManualInvoiceDueDate(PppUser $user): Carbon
+    {
+        $candidate = $user->jatuh_tempo
+            ? Carbon::parse($user->jatuh_tempo)->endOfDay()
+            : now()->addMonthsNoOverflow($this->resolveInvoiceCycleMonths($user))->endOfDay();
+        $cycleMonths = $this->resolveInvoiceCycleMonths($user);
+
+        while ($this->userHasInvoiceForDueDate($user, $candidate, 'paid')) {
+            $candidate = $candidate->copy()->addMonthsNoOverflow($cycleMonths)->endOfDay();
+        }
+
+        return $candidate;
+    }
+
+    private function resolveInvoiceCycleMonths(PppUser $user): int
+    {
+        return max(1, (int) ($user->profile?->masa_aktif ?? 1));
+    }
+
     private function createInvoiceForUser(PppUser $user, ?Carbon $dueOverride = null, bool $forceNew = false, bool $applyProrata = false): ?Invoice
     {
         $dueDate = $dueOverride
@@ -1272,7 +1347,7 @@ class PppUserController extends Controller
         $prefix = TenantSettings::getOrCreate($user->owner_id)->invoice_prefix ?? 'INV';
         $invoiceNumber = Invoice::generateNumber($user->owner_id, $prefix);
 
-        Invoice::create([
+        return Invoice::create([
             'invoice_number' => $invoiceNumber,
             'ppp_user_id' => $user->id,
             'ppp_profile_id' => $user->ppp_profile_id,
@@ -1292,8 +1367,6 @@ class PppUserController extends Controller
             'status' => 'unpaid',
             'payment_token' => Invoice::generatePaymentToken(),
         ]);
-
-        return $user->invoices()->latest()->first();
     }
 
     private function markInvoicePaid(PppUser $user): void
@@ -1331,14 +1404,11 @@ class PppUserController extends Controller
         return $query->exists();
     }
 
-    private function buildNotaLayananView(PppUser $pppUser, string $requestedType): View
+    private function buildNotaLayananView(PppUser $pppUser, string $requestedType, ?ServiceNote $editingServiceNote = null): View
     {
         /** @var User $user */
         $user = auth()->user();
-
-        if (! $user->isSuperAdmin() && $pppUser->owner_id !== $user->effectiveOwnerId()) {
-            abort(403);
-        }
+        $this->authorizeServiceNoteWorkspace($user, $pppUser, $editingServiceNote);
 
         $pppUser->load(['profile', 'owner']);
 
@@ -1355,9 +1425,11 @@ class PppUserController extends Controller
         $notaTypes = $this->notaTypePresets($pppUser);
         $notaType = array_key_exists($requestedType, $notaTypes) ? $requestedType : 'aktivasi';
         $notaDefaults = $notaTypes[$notaType];
-        $defaultDocumentNumber = ServiceNote::generateNumber((int) $pppUser->owner_id);
+        $defaultDocumentNumber = $editingServiceNote?->document_number
+            ?? ServiceNote::generateNumber((int) $pppUser->owner_id);
 
         return view('ppp-users.nota-layanan', compact(
+            'editingServiceNote',
             'defaultDocumentNumber',
             'notaDefaults',
             'notaType',
@@ -1366,6 +1438,146 @@ class PppUserController extends Controller
             'pppUser',
             'settings',
         ));
+    }
+
+    private function authorizeServiceNoteWorkspace(User $user, PppUser $pppUser, ?ServiceNote $serviceNote = null): void
+    {
+        if (! $user->isSuperAdmin() && $pppUser->owner_id !== $user->effectiveOwnerId()) {
+            abort(403);
+        }
+
+        if (! $user->isTeknisi()) {
+            return;
+        }
+
+        if ($serviceNote !== null) {
+            $canAccessExisting = $serviceNote->created_by === $user->id || $serviceNote->paid_by === $user->id;
+
+            if (! $canAccessExisting) {
+                abort(403);
+            }
+
+            return;
+        }
+
+        if ($pppUser->assigned_teknisi_id !== null && $pppUser->assigned_teknisi_id !== $user->id) {
+            abort(403);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function buildServiceNoteAttributes(
+        User $user,
+        PppUser $pppUser,
+        array $validated,
+        ?ServiceNote $existingServiceNote = null,
+    ): array {
+        $itemLines = collect($validated['item_lines'] ?? [])
+            ->map(function (array $item): array {
+                return [
+                    'label' => trim((string) ($item['label'] ?? '')),
+                    'amount' => round((float) ($item['amount'] ?? 0), 2),
+                ];
+            })
+            ->filter(fn (array $item): bool => $item['label'] !== '' || $item['amount'] > 0)
+            ->values();
+
+        if ($itemLines->isEmpty()) {
+            throw ValidationException::withMessages([
+                'item_lines' => 'Minimal 1 item biaya harus diisi.',
+            ]);
+        }
+
+        $subtotal = (float) $itemLines->sum('amount');
+
+        if ($subtotal <= 0) {
+            throw ValidationException::withMessages([
+                'item_lines' => 'Total nota harus lebih dari nol.',
+            ]);
+        }
+
+        $documentNumber = trim((string) ($validated['document_number'] ?? ''));
+
+        $documentNumberExists = ServiceNote::query()
+            ->where('owner_id', $pppUser->owner_id)
+            ->where('document_number', $documentNumber)
+            ->when($existingServiceNote !== null, fn (Builder $query) => $query->whereKeyNot($existingServiceNote->id))
+            ->exists();
+
+        if ($documentNumber === '' || $documentNumberExists) {
+            $documentNumber = ServiceNote::generateNumber((int) $pppUser->owner_id);
+        }
+
+        $serviceType = in_array($validated['service_type'], ['pppoe', 'hotspot'], true)
+            ? $validated['service_type']
+            : 'general';
+        $paymentMethod = $validated['payment_method'];
+        $transferAccounts = [];
+
+        if ($paymentMethod === 'transfer') {
+            $transferAccounts = BankAccount::query()
+                ->where('user_id', $pppUser->owner_id)
+                ->where('is_active', true)
+                ->orderByDesc('is_primary')
+                ->orderByDesc('id')
+                ->get(['bank_name', 'account_number', 'account_name', 'branch'])
+                ->map(fn (BankAccount $bankAccount): array => [
+                    'bank_name' => $bankAccount->bank_name,
+                    'account_number' => $bankAccount->account_number,
+                    'account_name' => $bankAccount->account_name,
+                    'branch' => $bankAccount->branch,
+                ])
+                ->values()
+                ->all();
+
+            if ($transferAccounts === [] && $existingServiceNote?->payment_method === 'transfer') {
+                $transferAccounts = $existingServiceNote->transfer_accounts ?? [];
+            }
+
+            if ($transferAccounts === []) {
+                throw ValidationException::withMessages([
+                    'payment_method' => 'Rekening pembayaran aktif belum tersedia. Tambahkan minimal satu rekening pembayaran terlebih dahulu sebelum membuat nota transfer.',
+                ]);
+            }
+        }
+
+        $isTransferPayment = $paymentMethod === 'transfer';
+        $paidAt = $isTransferPayment
+            ? null
+            : Carbon::parse((string) $validated['note_date'])->setTimeFrom(now());
+
+        return [
+            'owner_id' => $pppUser->owner_id,
+            'ppp_user_id' => $pppUser->id,
+            'created_by' => $existingServiceNote?->created_by ?? $user->id,
+            'paid_by' => $isTransferPayment ? null : $user->id,
+            'note_type' => $validated['note_type'],
+            'document_number' => $documentNumber,
+            'document_title' => trim((string) $validated['document_title']),
+            'summary_title' => trim((string) $validated['summary_title']),
+            'service_type' => $serviceType,
+            'status' => $isTransferPayment ? ServiceNote::STATUS_PENDING : ServiceNote::STATUS_PAID,
+            'note_date' => $validated['note_date'],
+            'customer_id' => $pppUser->customer_id,
+            'customer_name' => $pppUser->customer_name,
+            'customer_phone' => $pppUser->nomor_hp,
+            'customer_address' => $pppUser->alamat,
+            'package_name' => $pppUser->profile?->name,
+            'item_lines' => $itemLines->all(),
+            'subtotal' => $subtotal,
+            'total' => $subtotal,
+            'payment_method' => $paymentMethod,
+            'transfer_accounts' => $transferAccounts !== [] ? $transferAccounts : null,
+            'show_service_section' => (bool) ($validated['show_service_section'] ?? true),
+            'cash_received' => $paymentMethod === 'cash' ? $subtotal : null,
+            'notes' => $validated['notes'] ?? null,
+            'footer' => $validated['footer'] ?? null,
+            'paid_at' => $paidAt,
+            'printed_at' => now(),
+        ];
     }
 
     /**

@@ -249,12 +249,12 @@
         <tr>
             <td class="label">Biaya Admin Bank/Loket</td>
             <td class="value text-right">
-                <span class="nominal-underline">0</span>
+                <span class="nominal-underline">0,00</span>
             </td>
         </tr>
         <tr class="total-row">
             <td class="label">Total Dibayar</td>
-            <td class="value text-right">{{ number_format($invoice->total, 0, ',', '.') }}</td>
+            <td class="value text-right">{{ number_format($invoice->total, 2, ',', '.') }}</td>
         </tr>
     </table>
 

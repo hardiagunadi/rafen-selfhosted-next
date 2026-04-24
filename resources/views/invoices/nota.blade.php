@@ -1,5 +1,23 @@
 <!DOCTYPE html>
 <html lang="id">
+@php
+    $bulanNames   = ['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+    $refDate      = $invoice->due_date ?? $invoice->created_at;
+    $bulanIdx     = ($refDate->month - 1) < 1 ? 12 : ($refDate->month - 1);
+    $tagihanBulan = $bulanNames[$bulanIdx];
+    $terbilang    = ucfirst(terbilang((int) $invoice->total));
+    $logo         = $settings ? ($settings->invoice_logo ?: $settings->business_logo) : null;
+    $coName       = $settings && $settings->business_name
+                        ? $settings->business_name
+                        : ($invoice->owner ? ($invoice->owner->company_name ?? $invoice->owner->name) : '');
+    $coAddr       = $settings ? ($settings->business_address ?? '') : '';
+    $coPhone      = $settings ? ($settings->business_phone ?? '') : '';
+    $dueDate      = $invoice->due_date ? $invoice->due_date->translatedFormat('d F Y') : '-';
+    $custAlamat   = $invoice->pppUser ? ($invoice->pppUser->alamat ?? '') : '';
+    $paketLine    = $invoice->paket_langganan ?? '-';
+    $footer       = $settings ? ($settings->invoice_footer ?? '') : '';
+    $bodyFontFamily = $settings?->browserInvoiceFontCssStack() ?? 'Arial, Helvetica, sans-serif';
+@endphp
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -115,26 +133,13 @@
         }
     </style>
 @endverbatim
+    <style>
+        body {
+            font-family: {!! $bodyFontFamily !!};
+        }
+    </style>
 </head>
 <body>
-
-@php
-    $bulanNames   = ['','Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-    $refDate      = $invoice->due_date ?? $invoice->created_at;
-    $bulanIdx     = ($refDate->month - 1) < 1 ? 12 : ($refDate->month - 1);
-    $tagihanBulan = $bulanNames[$bulanIdx];
-    $terbilang    = ucfirst(terbilang((int) $invoice->total));
-    $logo         = $settings ? ($settings->invoice_logo ?: $settings->business_logo) : null;
-    $coName       = $settings && $settings->business_name
-                        ? $settings->business_name
-                        : ($invoice->owner ? ($invoice->owner->company_name ?? $invoice->owner->name) : '');
-    $coAddr       = $settings ? ($settings->business_address ?? '') : '';
-    $coPhone      = $settings ? ($settings->business_phone ?? '') : '';
-    $dueDate      = $invoice->due_date ? $invoice->due_date->translatedFormat('d F Y') : '-';
-    $custAlamat   = $invoice->pppUser ? ($invoice->pppUser->alamat ?? '') : '';
-    $paketLine    = $invoice->paket_langganan ?? '-';
-    $footer       = $settings ? ($settings->invoice_footer ?? '') : '';
-@endphp
 
 <div class="no-print">
     @if($isReprint ?? false)
@@ -230,12 +235,12 @@
         <tr>
             <td class="label">Biaya Admin Bank/Loket</td>
             <td class="value text-right">
-                <span class="nominal-underline">0</span>
+                <span class="nominal-underline">0,00</span>
             </td>
         </tr>
         <tr class="total-row">
             <td class="label">Total Dibayar</td>
-            <td class="value text-right">{{ number_format($invoice->total, 0, ',', '.') }}</td>
+            <td class="value text-right">{{ number_format($invoice->total, 2, ',', '.') }}</td>
         </tr>
     </table>
 

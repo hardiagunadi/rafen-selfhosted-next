@@ -117,3 +117,26 @@ it('shows friendly validation messages when creating a PPP customer', function (
         ->and($errors->first('alamat'))->toBe('Alamat wajib diisi.')
         ->and($errors->first('nomor_hp'))->toBe('Nomor HP ini sudah digunakan oleh pelanggan lain. Setiap pelanggan harus memiliki nomor HP yang unik agar bisa login ke portal.');
 });
+
+it('allows username equals password without manually filling password fields', function () {
+    $tenant = makeValidationTenantAdmin();
+    $profile = makeValidationProfile($tenant);
+
+    $this->actingAs($tenant)
+        ->post(route('ppp-users.store'), makeValidationPayload($tenant, $profile, [
+            'customer_id' => 'CUST-VALIDASI-004',
+            'metode_login' => 'username_equals_password',
+            'username' => 'pelanggan-sama-password',
+            'ppp_password' => '',
+            'password_clientarea' => '',
+        ]))
+        ->assertRedirect(route('ppp-users.index'))
+        ->assertSessionDoesntHaveErrors();
+
+    $pppUser = PppUser::query()
+        ->where('username', 'pelanggan-sama-password')
+        ->firstOrFail();
+
+    expect($pppUser->ppp_password)->toBe('pelanggan-sama-password')
+        ->and($pppUser->password_clientarea)->toBe('pelanggan-sama-password');
+});

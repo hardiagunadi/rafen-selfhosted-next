@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\PppUser;
+use App\Models\ServiceNote;
 use Illuminate\Foundation\Http\FormRequest;
 
 class StoreServiceNoteRequest extends FormRequest
@@ -11,6 +12,20 @@ class StoreServiceNoteRequest extends FormRequest
     {
         $user = $this->user();
         $pppUser = $this->route('pppUser');
+        $serviceNote = $this->route('serviceNote');
+
+        if ($serviceNote instanceof ServiceNote) {
+            $ownerId = $serviceNote->owner_id;
+            $assignedTeknisiId = $serviceNote->pppUser?->assigned_teknisi_id;
+            $canAccessExisting = ! $user?->isTeknisi()
+                || $serviceNote->created_by === $user?->id
+                || $serviceNote->paid_by === $user?->id;
+
+            return $user !== null
+                && ($user->isSuperAdmin() || $ownerId === $user->effectiveOwnerId())
+                && (! $user->isTeknisi() || $assignedTeknisiId === null || $assignedTeknisiId === $user->id)
+                && $canAccessExisting;
+        }
 
         return $user !== null
             && $pppUser instanceof PppUser

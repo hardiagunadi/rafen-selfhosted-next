@@ -7,7 +7,7 @@
         <div class="d-flex justify-content-between align-items-center flex-wrap" style="gap:.75rem;">
             <div>
                 <h4 class="mb-1">Riwayat Nota Layanan</h4>
-                <p class="mb-0 text-muted">Cari nota layanan yang sudah tersimpan sebagai pendapatan dan cetak ulang kapan saja.</p>
+                <p class="mb-0 text-muted">Cari nota layanan, konfirmasi transfer yang sudah diterima, dan cetak ulang kapan saja.</p>
             </div>
             <div class="d-flex flex-wrap" style="gap:.75rem;">
                 <div class="text-right">
@@ -15,8 +15,12 @@
                     <div class="h5 mb-0">{{ number_format($summary['count'] ?? 0) }}</div>
                 </div>
                 <div class="text-right">
-                    <div class="small text-uppercase text-muted">Total Pendapatan</div>
-                    <div class="h5 mb-0">Rp {{ number_format($summary['total'] ?? 0, 0, ',', '.') }}</div>
+                    <div class="small text-uppercase text-muted">Menunggu</div>
+                    <div class="h5 mb-0">{{ number_format($summary['pending_count'] ?? 0) }}</div>
+                </div>
+                <div class="text-right">
+                    <div class="small text-uppercase text-muted">Total Diterima</div>
+                    <div class="h5 mb-0">Rp {{ number_format($summary['paid_total'] ?? 0, 0, ',', '.') }}</div>
                 </div>
             </div>
         </div>
@@ -50,6 +54,14 @@
                         </select>
                     </div>
                     <div class="form-group col-md-2">
+                        <label for="status">Status</label>
+                        <select class="form-control" id="status" name="status">
+                            <option value="">Semua</option>
+                            <option value="pending" @selected($filters['status'] === 'pending')>Menunggu</option>
+                            <option value="paid" @selected($filters['status'] === 'paid')>Lunas</option>
+                        </select>
+                    </div>
+                    <div class="form-group col-md-2">
                         <label for="date_from">Tanggal Dari</label>
                         <input type="date" class="form-control" id="date_from" name="date_from" value="{{ $filters['date_from'] }}">
                     </div>
@@ -80,6 +92,7 @@
                             <th>Nomor Nota</th>
                             <th>Pelanggan</th>
                             <th>Jenis Nota</th>
+                            <th>Status</th>
                             <th>Metode Bayar</th>
                             <th>Petugas</th>
                             <th class="text-right">Total</th>
@@ -99,10 +112,24 @@
                                     <div class="small text-muted">{{ $serviceNote->customer_id ?: '-' }}</div>
                                 </td>
                                 <td><span class="badge badge-info text-uppercase">{{ $serviceNote->note_type }}</span></td>
+                                <td>
+                                    <span class="badge badge-{{ $serviceNote->statusBadgeClass() }}">{{ $serviceNote->statusLabel() }}</span>
+                                </td>
                                 <td><span class="badge badge-secondary text-uppercase">{{ $serviceNote->payment_method }}</span></td>
-                                <td>{{ $serviceNote->paidBy?->name ?? '-' }}</td>
+                                <td>{{ $serviceNote->paidBy?->name ?? $serviceNote->creator?->name ?? '-' }}</td>
                                 <td class="text-right font-weight-bold">Rp {{ number_format((float) $serviceNote->total, 0, ',', '.') }}</td>
                                 <td class="text-right">
+                                    @if ($serviceNote->requiresTransferConfirmation())
+                                        <a href="{{ route('service-notes.edit', $serviceNote) }}" class="btn btn-warning btn-sm" title="Edit nota belum lunas">
+                                            <i class="fas fa-pen"></i>
+                                        </a>
+                                        <form method="POST" action="{{ route('service-notes.confirm-transfer', $serviceNote) }}" class="d-inline">
+                                            @csrf
+                                            <button type="submit" class="btn btn-success btn-sm" title="Konfirmasi transfer diterima" onclick="return confirm('Tandai transfer untuk nota ini sudah diterima?')">
+                                                <i class="fas fa-check"></i>
+                                            </button>
+                                        </form>
+                                    @endif
                                     <a href="{{ route('service-notes.print', $serviceNote) }}" target="_blank" class="btn btn-secondary btn-sm" title="Cetak ulang nota">
                                         <i class="fas fa-print"></i>
                                     </a>
@@ -110,7 +137,7 @@
                             </tr>
                         @empty
                             <tr>
-                                <td colspan="8" class="text-center text-muted py-4">Belum ada nota layanan tersimpan.</td>
+                                <td colspan="9" class="text-center text-muted py-4">Belum ada nota layanan tersimpan.</td>
                             </tr>
                         @endforelse
                     </tbody>
