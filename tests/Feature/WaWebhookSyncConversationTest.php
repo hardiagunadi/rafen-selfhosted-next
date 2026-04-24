@@ -32,6 +32,7 @@ it('creates wa_conversation and wa_chat_message from inbound webhook', function 
 
     $payload = [
         'session' => 'session-1',
+        'id' => 'local-msg-001',
         'sender' => '6281234567890@s.whatsapp.net',
         'pushName' => 'Budi',
         'message' => 'Halo internet saya mati',
@@ -50,6 +51,7 @@ it('creates wa_conversation and wa_chat_message from inbound webhook', function 
         ->first();
 
     expect($conv)->not->toBeNull();
+    expect($conv->provider)->toBe('local');
     expect($conv->contact_name)->toBe('Budi');
     expect($conv->status)->toBe('open');
     expect($conv->unread_count)->toBe(1);
@@ -57,8 +59,11 @@ it('creates wa_conversation and wa_chat_message from inbound webhook', function 
 
     $msg = WaChatMessage::where('conversation_id', $conv->id)->first();
     expect($msg)->not->toBeNull();
+    expect($msg->provider)->toBe('local');
     expect($msg->direction)->toBe('inbound');
     expect($msg->message)->toBe('Halo internet saya mati');
+    expect($msg->message_type)->toBe('text');
+    expect($msg->provider_message_id)->toBe('local-msg-001');
 });
 
 // ── syncToConversation: increments unread on same conversation ─────────────────

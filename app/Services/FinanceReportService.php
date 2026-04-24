@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\FinanceExpense;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\ServiceNote;
 use App\Models\Transaction;
 use App\Models\User;
 use Carbon\Carbon;
@@ -208,6 +209,16 @@ class FinanceReportService
                 periodEnd: $periodEnd
             );
             $items = $items->concat($invoiceItems);
+
+            $serviceNoteItems = $this->collectServiceNoteIncomeItems(
+                authUser: $authUser,
+                ownerId: $ownerId,
+                teknisiId: $teknisiId,
+                serviceType: $serviceType,
+                periodStart: $periodStart,
+                periodEnd: $periodEnd
+            );
+            $items = $items->concat($serviceNoteItems);
         }
 
         if ($includeVoucherIncome) {
@@ -320,6 +331,55 @@ class FinanceReportService
                 'owner' => (string) ($transaction->owner?->name ?? '-'),
                 'reference' => (string) ($transaction->mixradius_id ?: 'TRX-'.$transaction->id),
                 'amount' => (float) $transaction->total,
+            ];
+        });
+    }
+
+    private function collectServiceNoteIncomeItems(
+        User $authUser,
+        ?int $ownerId,
+        ?int $teknisiId,
+        string $serviceType,
+        Carbon $periodStart,
+        Carbon $periodEnd,
+    ): Collection {
+        $query = ServiceNote::query()
+            ->with('owner:id,name')
+            ->where('status', 'paid');
+
+        if (! $authUser->isSuperAdmin()) {
+            $query->where('owner_id', $authUser->effectiveOwnerId());
+        } elseif ($ownerId !== null) {
+            $query->where('owner_id', $ownerId);
+        }
+
+        if (in_array($serviceType, ['pppoe', 'hotspot'], true)) {
+            $query->where('service_type', $serviceType);
+        }
+
+        if ($teknisiId !== null) {
+            $query->where('paid_by', $teknisiId);
+        }
+
+        $this->applyPaidDateRange(
+            query: $query,
+            paidAtColumn: 'paid_at',
+            fallbackColumn: 'created_at',
+            periodStart: $periodStart,
+            periodEnd: $periodEnd
+        );
+
+        return $query->get()->map(function (ServiceNote $serviceNote): array {
+            $paidTime = $serviceNote->paid_at ?? $serviceNote->created_at;
+
+            return [
+                'time' => $paidTime?->format('d/m/Y H:i') ?? '-',
+                'timestamp' => $paidTime?->timestamp ?? 0,
+                'user_type' => 'customer',
+                'service' => (string) ($serviceNote->service_type ?: 'general'),
+                'owner' => (string) ($serviceNote->owner?->name ?? '-'),
+                'reference' => (string) $serviceNote->document_number,
+                'amount' => (float) $serviceNote->total,
             ];
         });
     }

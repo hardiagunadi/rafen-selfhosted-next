@@ -313,7 +313,7 @@ it('shows wa gateway overview and dedicated devices tab for tenant admin', funct
         ->assertSee('Scan QR WhatsApp');
 });
 
-it('stores wa delay inputs in milliseconds while form uses seconds', function () {
+it('stores wa delay inputs in milliseconds while enforcing safe local throttling defaults', function () {
     $tenantAdmin = User::factory()->create([
         'is_super_admin' => false,
         'role' => 'administrator',
@@ -339,8 +339,10 @@ it('stores wa delay inputs in milliseconds while form uses seconds', function ()
 
     $this->assertDatabaseHas('tenant_settings', [
         'user_id' => $tenantAdmin->id,
-        'wa_antispam_delay_ms' => 2500,
-        'wa_blast_delay_min_ms' => 3000,
-        'wa_blast_delay_max_ms' => 4200,
+        'wa_provider' => 'local',
+        'wa_antispam_delay_ms' => 8000,
+        'wa_antispam_max_per_minute' => 4,
+        'wa_blast_delay_min_ms' => 12000,
+        'wa_blast_delay_max_ms' => 20000,
     ]);
 });

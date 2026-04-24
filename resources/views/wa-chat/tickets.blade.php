@@ -59,7 +59,7 @@
 
 {{-- Modal Buat Tiket Manual --}}
 @if(!auth()->user()->isTeknisi())
-<div class="modal fade" id="modalCreateTicket" tabindex="-1">
+<div class="modal fade" id="modalCreateTicket" tabindex="-1" data-backdrop="static" data-keyboard="false">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
@@ -72,7 +72,7 @@
                     {{-- Pilih Pelanggan --}}
                     <div class="form-group">
                         <label class="font-weight-bold">Pelanggan <span class="text-danger">*</span></label>
-                        <select id="selectCustomer" name="customer_id" class="form-control" style="width:100%;">
+                        <select id="selectCustomer" name="customer_id" class="form-control" style="width:100%;" data-native-select="true">
                         </select>
                         <small class="text-muted">Ketik nama, username, atau nomor HP pelanggan PPP.</small>
                     </div>
@@ -208,14 +208,18 @@
     // ── Modal Buat Tiket ──────────────────────────────────────────
     @if(!auth()->user()->isTeknisi())
 
-    // Select2 untuk pilih pelanggan
-    // Fix: cegah klik di dropdown Select2 menutup modal Bootstrap
-    $(document).on('mousedown', '.select2-container--open .select2-dropdown', function(e) {
-        e.stopPropagation();
-    });
+    function initTicketCustomerSelect() {
+        const $selectCustomer = $('#selectCustomer');
 
-    $(function() {
-        $('#selectCustomer').select2({
+        if (!$.fn.select2 || !$selectCustomer.length) {
+            return;
+        }
+
+        if ($selectCustomer.hasClass('select2-hidden-accessible')) {
+            $selectCustomer.select2('destroy');
+        }
+
+        $selectCustomer.select2({
             theme: 'bootstrap4',
             dropdownParent: $('#modalCreateTicket'),
             placeholder: 'Ketik nama, username, atau nomor HP...',
@@ -244,6 +248,16 @@
             $('#customerInfo').removeClass('d-none');
         }).on('select2:clear', function() {
             $('#customerInfo').addClass('d-none');
+        });
+    }
+
+    $(function() {
+        $('#modalCreateTicket').on('shown.bs.modal', function() {
+            initTicketCustomerSelect();
+        });
+
+        $(document).on('mousedown mouseup click touchstart touchend', '.select2-container, .select2-dropdown, .select2-results__option', function(e) {
+            e.stopPropagation();
         });
 
         // Reset modal saat ditutup
@@ -304,4 +318,3 @@
 })();
 </script>
 @endpush
-

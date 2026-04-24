@@ -3,8 +3,8 @@
 use App\Models\SelfHostedUpdateRun;
 use App\Models\SelfHostedUpdateState;
 use App\Models\User;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
@@ -366,9 +366,46 @@ it('shows stale heartbeat indicator when the last successful sync is too old', f
         ->get(route('super-admin.settings.app-update'))
         ->assertSuccessful()
         ->assertSee('Heartbeat Stale')
-        ->assertSee('Sync: STALE')
+        ->assertSee('Perlu Sinkronisasi')
         ->assertSee('Heartbeat sukses terakhir lebih lama dari 60 menit.')
         ->assertSee('77');
+
+    Carbon::setTestNow();
+});
+
+it('shows self hosted update attention summary in the navbar notification dropdown', function () {
+    Carbon::setTestNow('2026-04-04 12:00:00');
+
+    $superAdmin = createSuperAdminForAppUpdate();
+
+    config()->set('services.self_hosted_registry.url', 'https://saas.example.test/api/self-hosted/install-registrations');
+    config()->set('services.self_hosted_registry.token', 'registry-token-007');
+    config()->set('services.self_hosted_registry.heartbeat_stale_after_minutes', 60);
+
+    SelfHostedUpdateState::query()->create([
+        'channel' => 'stable',
+        'current_version' => '2026.04.01-main.1',
+        'current_commit' => 'abc1234',
+        'latest_version' => '2026.04.04-main.1',
+        'update_available' => true,
+        'last_apply_status' => 'failed',
+        'last_apply_message' => 'Apply terakhir gagal.',
+        'last_heartbeat_at' => now()->subMinutes(95),
+        'last_successful_heartbeat_at' => now()->subMinutes(95),
+        'last_heartbeat_status' => 'success',
+        'last_heartbeat_message' => 'Heartbeat status instance berhasil dikirim ke SaaS.',
+    ]);
+
+    $response = $this->actingAs($superAdmin)
+        ->get(route('super-admin.settings.app-update'))
+        ->assertSuccessful()
+        ->assertSee('Update Self-Hosted Tersedia')
+        ->assertSee('Apply Update Gagal')
+        ->assertSee('Heartbeat Self-Hosted Stale');
+
+    expect($response->getContent())
+        ->toContain('nav-icon-badge badge-warning">3<')
+        ->toContain(route('super-admin.settings.app-update'));
 
     Carbon::setTestNow();
 });

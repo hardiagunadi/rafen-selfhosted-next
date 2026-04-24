@@ -6,18 +6,27 @@ use App\Models\HotspotUser;
 use App\Models\PppUser;
 use App\Models\TenantSettings;
 use App\Models\User;
+use App\Models\WaChatMessage;
 use App\Models\WaConversation;
 use App\Services\WaGatewayService;
+use App\Services\YCloudInboundMediaService;
+use App\Services\YCloudWhatsAppService;
 use App\Traits\LogsActivity;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class WaChatController extends Controller
 {
     use LogsActivity;
 
     private const ALLOWED_ROLES = ['administrator', 'noc', 'it_support', 'cs'];
+
+    public function __construct(
+        private YCloudInboundMediaService $ycloudInboundMediaService,
+    ) {}
 
     public function index(Request $request)
     {
@@ -69,6 +78,7 @@ class WaChatController extends Controller
 
             return [
                 'id' => $c->id,
+                'provider' => $this->resolveConversationProvider($c),
                 'contact_phone' => $c->contact_phone,
                 'contact_name' => $c->contact_name ?? $c->contact_phone,
                 'status' => $c->status,
@@ -106,7 +116,7 @@ class WaChatController extends Controller
                 ->where('id', '>', (int) $afterId)
                 ->orderBy('created_at')
                 ->get()
-                ->map(fn ($msg) => $this->formatMessage($msg));
+                ->map(fn (WaChatMessage $msg) => $this->formatMessage($this->ycloudInboundMediaService->hydrateChatMessage($msg)));
 
             return response()->json(['new_messages' => $newMessages]);
         }
@@ -114,18 +124,21 @@ class WaChatController extends Controller
         $messages = $waConversation->messages()
             ->orderBy('created_at')
             ->get()
-            ->map(fn ($msg) => $this->formatMessage($msg));
+            ->map(fn (WaChatMessage $msg) => $this->formatMessage($this->ycloudInboundMediaService->hydrateChatMessage($msg)));
 
         // Reset unread count when CS opens conversation
         if ($waConversation->unread_count > 0) {
             $waConversation->update(['unread_count' => 0]);
         }
 
+        $this->markConversationAsReadIfNeeded($waConversation);
+
         $customer = $this->resolveCustomer($waConversation->contact_phone, $waConversation->owner_id);
 
         return response()->json([
             'conversation' => [
                 'id' => $waConversation->id,
+                'provider' => $this->resolveConversationProvider($waConversation),
                 'contact_phone' => $waConversation->contact_phone,
                 'contact_name' => $waConversation->contact_name ?? $waConversation->contact_phone,
                 'status' => $waConversation->status,
@@ -161,26 +174,35 @@ class WaChatController extends Controller
             return response()->json(['success' => false, 'message' => 'WA Gateway belum dikonfigurasi.'], 422);
         }
 
-        $service = WaGatewayService::forTenant($settings);
-        if (! $service) {
-            return response()->json(['success' => false, 'message' => 'WA Gateway tidak tersedia.'], 422);
-        }
+        $this->showTypingIndicatorIfSupported($settings, $waConversation);
 
-        $service->sendMessage($waConversation->contact_phone, $text, [
+        $result = $this->sendConversationText($settings, $waConversation, $text, [
             'event' => 'cs_reply',
             'conversation_id' => $waConversation->id,
         ]);
 
+        if (! $result['ok']) {
+            return response()->json(['success' => false, 'message' => $result['message']], 422);
+        }
+
         $waConversation->messages()->create([
             'owner_id' => $ownerId,
+            'provider' => $result['provider'],
             'direction' => 'outbound',
             'message' => $text,
+            'message_type' => 'text',
+            'pricing_category' => $result['pricing_category'],
+            'is_free_window_send' => $result['is_free_window_send'],
+            'delivery_status' => $result['delivery_status'],
+            'pricing_metadata' => $result['pricing_metadata'],
             'sender_name' => $nickname,
             'sender_id' => $user->id,
+            'wa_message_id' => $result['provider_message_id'],
+            'provider_message_id' => $result['provider_message_id'],
             'created_at' => now(),
         ]);
 
-        $waConversation->update([
+        $waConversation->updateConversationState([
             'last_message' => mb_substr($text, 0, 255),
             'last_message_at' => now(),
             'bot_paused_until' => null, // CS sudah handle, bot aktif kembali
@@ -189,6 +211,30 @@ class WaChatController extends Controller
         $this->logActivity('replied', 'WaConversation', $waConversation->id, $waConversation->contact_phone, $ownerId);
 
         return response()->json(['success' => true, 'message' => 'Pesan terkirim.']);
+    }
+
+    public function media(WaChatMessage $waChatMessage): StreamedResponse
+    {
+        $conversation = $waChatMessage->conversation()->firstOrFail();
+        $this->authorizeAccess($conversation);
+
+        $waChatMessage = $this->ycloudInboundMediaService->hydrateChatMessage($waChatMessage);
+
+        $mediaPath = trim((string) ($waChatMessage->media_path ?? ''));
+        if ($mediaPath === '' || ! Storage::disk('public')->exists($mediaPath)) {
+            abort(404);
+        }
+
+        $mediaMime = trim((string) ($waChatMessage->media_mime ?? ''));
+        $mediaFilename = trim((string) ($waChatMessage->media_filename ?? ''));
+        $disposition = in_array($waChatMessage->media_type, ['image', 'video', 'audio'], true) ? 'inline' : 'attachment';
+
+        return Storage::disk('public')->response(
+            $mediaPath,
+            $mediaFilename !== '' ? $mediaFilename : null,
+            $mediaMime !== '' ? ['Content-Type' => $mediaMime] : [],
+            $disposition
+        );
     }
 
     public function replyImage(Request $request, WaConversation $waConversation): JsonResponse
@@ -205,59 +251,67 @@ class WaChatController extends Controller
         }
 
         $request->validate([
-            'image'   => ['required', 'image', 'max:5120'],
+            'image' => ['required', 'image', 'max:5120'],
             'caption' => ['nullable', 'string', 'max:1000'],
         ]);
 
-        $ownerId  = $user->effectiveOwnerId();
+        $ownerId = $user->effectiveOwnerId();
         $settings = TenantSettings::where('user_id', $ownerId)->first();
 
         if (! $settings || ! $settings->hasWaConfigured()) {
             return response()->json(['success' => false, 'message' => 'WA Gateway belum dikonfigurasi.'], 422);
         }
 
-        $service = WaGatewayService::forTenant($settings);
-        if (! $service) {
-            return response()->json(['success' => false, 'message' => 'WA Gateway tidak tersedia.'], 422);
-        }
-
-        $path    = $request->file('image')->store('wa-chat-images', 'public');
-        $pubUrl  = asset('storage/'.$path);
+        $path = $request->file('image')->store('wa-chat-images', 'public');
+        $pubUrl = asset('storage/'.$path);
         $nickname = $user->nickname ?? $user->name;
-        $caption  = trim($request->input('caption', ''));
+        $caption = trim($request->input('caption', ''));
         $captionFull = $caption !== '' ? $caption."\n- ".$nickname : '- '.$nickname;
 
-        $service->sendImage($waConversation->contact_phone, $pubUrl, $captionFull, [
+        $this->showTypingIndicatorIfSupported($settings, $waConversation);
+
+        $result = $this->sendConversationImage($settings, $waConversation, $pubUrl, $captionFull, [
             'event' => 'cs_reply_image',
             'conversation_id' => $waConversation->id,
         ]);
 
+        if (! $result['ok']) {
+            return response()->json(['success' => false, 'message' => $result['message']], 422);
+        }
+
         $waConversation->messages()->create([
-            'owner_id'   => $ownerId,
-            'direction'  => 'outbound',
-            'message'    => $captionFull ?: null,
+            'owner_id' => $ownerId,
+            'provider' => $result['provider'],
+            'direction' => 'outbound',
+            'message' => $captionFull ?: null,
+            'message_type' => 'image',
+            'pricing_category' => $result['pricing_category'],
+            'is_free_window_send' => $result['is_free_window_send'],
+            'delivery_status' => $result['delivery_status'],
+            'pricing_metadata' => $result['pricing_metadata'],
             'media_type' => 'image',
             'media_path' => $path,
-            'sender_name'=> $nickname,
-            'sender_id'  => $user->id,
+            'sender_name' => $nickname,
+            'sender_id' => $user->id,
+            'wa_message_id' => $result['provider_message_id'],
+            'provider_message_id' => $result['provider_message_id'],
             'created_at' => now(),
         ]);
 
-        $waConversation->update([
-            'last_message'    => '[Gambar]'.($caption ? ' '.$caption : ''),
+        $waConversation->updateConversationState([
+            'last_message' => '[Gambar]'.($caption ? ' '.$caption : ''),
             'last_message_at' => now(),
-            'bot_paused_until'=> null,
+            'bot_paused_until' => null,
         ]);
 
         $this->logActivity('replied', 'WaConversation', $waConversation->id, $waConversation->contact_phone, $ownerId);
 
         return response()->json([
-            'success'   => true,
+            'success' => true,
             'media_url' => $pubUrl,
-            'caption'   => $captionFull,
+            'caption' => $captionFull,
         ]);
     }
-
 
     public function markResolved(WaConversation $waConversation): JsonResponse
     {
@@ -326,10 +380,10 @@ class WaChatController extends Controller
         foreach ($ppps as $p) {
             $results[] = [
                 'type' => 'ppp',
-                'id'   => $p->id,
+                'id' => $p->id,
                 'name' => $p->customer_name,
-                'sub'  => $p->username.($p->nomor_hp ? ' · '.$p->nomor_hp : ''),
-                'url'  => route('ppp-users.show', $p->id),
+                'sub' => $p->username.($p->nomor_hp ? ' · '.$p->nomor_hp : ''),
+                'url' => route('ppp-users.show', $p->id),
             ];
         }
 
@@ -345,10 +399,10 @@ class WaChatController extends Controller
         foreach ($hotspots as $h) {
             $results[] = [
                 'type' => 'hotspot',
-                'id'   => $h->id,
+                'id' => $h->id,
                 'name' => $h->customer_name,
-                'sub'  => $h->username.($h->nomor_hp ? ' · '.$h->nomor_hp : ''),
-                'url'  => route('hotspot-users.show', $h->id),
+                'sub' => $h->username.($h->nomor_hp ? ' · '.$h->nomor_hp : ''),
+                'url' => route('hotspot-users.show', $h->id),
             ];
         }
 
@@ -369,14 +423,14 @@ class WaChatController extends Controller
         $users = User::query()
             ->where(function ($q) use ($ownerId) {
                 $q->where('id', $ownerId)
-                  ->orWhere('parent_id', $ownerId);
+                    ->orWhere('parent_id', $ownerId);
             })
             ->whereIn('role', ['administrator', 'noc', 'it_support', 'cs', 'teknisi'])
             ->orderBy('role')
             ->orderBy('name')
             ->get(['id', 'name', 'nickname', 'role'])
             ->map(fn ($u) => [
-                'id'    => $u->id,
+                'id' => $u->id,
                 'label' => ($u->nickname ?? $u->name).' ('.$u->role.')',
             ]);
 
@@ -410,14 +464,17 @@ class WaChatController extends Controller
         return response()->json(['success' => true]);
     }
 
-    private function formatMessage(\App\Models\WaChatMessage $msg): array
+    private function formatMessage(WaChatMessage $msg): array
     {
         return [
             'id' => $msg->id,
+            'provider' => $msg->provider ?? 'local',
             'direction' => $msg->direction,
             'message' => $msg->message,
+            'message_type' => $msg->message_type,
+            'delivery_status' => $msg->delivery_status,
             'media_type' => $msg->media_type,
-            'media_url' => $msg->media_path ? asset('storage/'.$msg->media_path) : null,
+            'media_url' => $msg->media_path ? route('wa-chat.media', $msg) : null,
             'media_mime' => $msg->media_mime,
             'media_filename' => $msg->media_filename,
             'sender_name' => $msg->sender_name,
@@ -443,9 +500,9 @@ class WaChatController extends Controller
         if ($ppp) {
             return [
                 'type' => 'ppp',
-                'id'   => $ppp->id,
+                'id' => $ppp->id,
                 'name' => $ppp->customer_name,
-                'url'  => route('ppp-users.show', $ppp->id),
+                'url' => route('ppp-users.show', $ppp->id),
             ];
         }
 
@@ -456,9 +513,9 @@ class WaChatController extends Controller
         if ($hotspot) {
             return [
                 'type' => 'hotspot',
-                'id'   => $hotspot->id,
+                'id' => $hotspot->id,
                 'name' => $hotspot->customer_name,
-                'url'  => route('hotspot-users.show', $hotspot->id),
+                'url' => route('hotspot-users.show', $hotspot->id),
             ];
         }
 
@@ -477,5 +534,176 @@ class WaChatController extends Controller
         if (! $user->isSuperAdmin() && $waConversation->owner_id !== $user->effectiveOwnerId()) {
             abort(403);
         }
+    }
+
+    private function resolveConversationProvider(WaConversation $waConversation, ?TenantSettings $settings = null): string
+    {
+        $provider = trim((string) ($waConversation->provider ?? ''));
+
+        if ($provider !== '') {
+            return $provider;
+        }
+
+        if ($settings?->usesYCloud()) {
+            return 'ycloud';
+        }
+
+        return 'local';
+    }
+
+    private function markConversationAsReadIfNeeded(WaConversation $waConversation): void
+    {
+        $settings = TenantSettings::query()->where('user_id', $waConversation->owner_id)->first();
+        if (! $settings || $this->resolveConversationProvider($waConversation, $settings) !== 'ycloud') {
+            return;
+        }
+
+        $service = YCloudWhatsAppService::forTenant($settings);
+        $messageId = $this->latestInboundProviderMessageId($waConversation);
+
+        if ($service && $messageId !== null) {
+            $service->markAsRead($messageId);
+        }
+    }
+
+    private function showTypingIndicatorIfSupported(TenantSettings $settings, WaConversation $waConversation): void
+    {
+        if ($this->resolveConversationProvider($waConversation, $settings) !== 'ycloud') {
+            return;
+        }
+
+        $service = YCloudWhatsAppService::forTenant($settings);
+        $messageId = $this->latestInboundProviderMessageId($waConversation);
+
+        if ($service && $messageId !== null) {
+            $service->showTypingIndicator($messageId);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array{ok: bool, provider: string, message: string, provider_message_id: string|null, delivery_status: string|null, pricing_category: string|null, is_free_window_send: bool, pricing_metadata: array<mixed>}
+     */
+    private function sendConversationText(TenantSettings $settings, WaConversation $waConversation, string $message, array $context = []): array
+    {
+        if ($this->resolveConversationProvider($waConversation, $settings) === 'ycloud') {
+            $service = YCloudWhatsAppService::forTenant($settings);
+            if (! $service) {
+                return $this->failedProviderResult('ycloud', 'YCloud WhatsApp belum dikonfigurasi.');
+            }
+
+            return $this->normalizeYCloudResult(
+                $service->sendTextMessage($waConversation->contact_phone, $message),
+                $waConversation
+            );
+        }
+
+        $service = WaGatewayService::forTenant($settings);
+        if (! $service) {
+            return $this->failedProviderResult('local', 'WA Gateway tidak tersedia.');
+        }
+
+        $ok = $service->sendMessage($waConversation->contact_phone, $message, $context);
+
+        return [
+            'ok' => $ok,
+            'provider' => 'local',
+            'message' => $ok ? 'Pesan terkirim.' : 'Gagal mengirim pesan ke gateway lokal.',
+            'provider_message_id' => null,
+            'delivery_status' => null,
+            'pricing_category' => null,
+            'is_free_window_send' => false,
+            'pricing_metadata' => [],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @return array{ok: bool, provider: string, message: string, provider_message_id: string|null, delivery_status: string|null, pricing_category: string|null, is_free_window_send: bool, pricing_metadata: array<mixed>}
+     */
+    private function sendConversationImage(TenantSettings $settings, WaConversation $waConversation, string $imageUrl, string $caption = '', array $context = []): array
+    {
+        if ($this->resolveConversationProvider($waConversation, $settings) === 'ycloud') {
+            $service = YCloudWhatsAppService::forTenant($settings);
+            if (! $service) {
+                return $this->failedProviderResult('ycloud', 'YCloud WhatsApp belum dikonfigurasi.');
+            }
+
+            return $this->normalizeYCloudResult(
+                $service->sendImageMessage($waConversation->contact_phone, $imageUrl, $caption),
+                $waConversation
+            );
+        }
+
+        $service = WaGatewayService::forTenant($settings);
+        if (! $service) {
+            return $this->failedProviderResult('local', 'WA Gateway tidak tersedia.');
+        }
+
+        $ok = $service->sendImage($waConversation->contact_phone, $imageUrl, $caption, $context);
+
+        return [
+            'ok' => $ok,
+            'provider' => 'local',
+            'message' => $ok ? 'Pesan terkirim.' : 'Gagal mengirim gambar ke gateway lokal.',
+            'provider_message_id' => null,
+            'delivery_status' => null,
+            'pricing_category' => null,
+            'is_free_window_send' => false,
+            'pricing_metadata' => [],
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $result
+     * @return array{ok: bool, provider: string, message: string, provider_message_id: string|null, delivery_status: string|null, pricing_category: string|null, is_free_window_send: bool, pricing_metadata: array<mixed>}
+     */
+    private function normalizeYCloudResult(array $result, WaConversation $waConversation): array
+    {
+        return [
+            'ok' => (bool) ($result['ok'] ?? false),
+            'provider' => 'ycloud',
+            'message' => (string) ($result['message'] ?? ''),
+            'provider_message_id' => is_scalar($result['provider_message_id'] ?? null) ? (string) $result['provider_message_id'] : null,
+            'delivery_status' => is_scalar($result['delivery_status'] ?? null) ? (string) $result['delivery_status'] : null,
+            'pricing_category' => null,
+            'is_free_window_send' => $waConversation->hasOpenServiceWindow(),
+            'pricing_metadata' => is_array($result['pricing_metadata'] ?? null) ? $result['pricing_metadata'] : [],
+        ];
+    }
+
+    /**
+     * @return array{ok: bool, provider: string, message: string, provider_message_id: string|null, delivery_status: string|null, pricing_category: string|null, is_free_window_send: bool, pricing_metadata: array<mixed>}
+     */
+    private function failedProviderResult(string $provider, string $message): array
+    {
+        return [
+            'ok' => false,
+            'provider' => $provider,
+            'message' => $message,
+            'provider_message_id' => null,
+            'delivery_status' => null,
+            'pricing_category' => null,
+            'is_free_window_send' => false,
+            'pricing_metadata' => [],
+        ];
+    }
+
+    private function latestInboundProviderMessageId(WaConversation $waConversation): ?string
+    {
+        $message = $waConversation->messages()
+            ->where('direction', 'inbound')
+            ->where('provider', 'ycloud')
+            ->orderByDesc('created_at')
+            ->orderByDesc('id')
+            ->first();
+
+        if (! $message) {
+            return null;
+        }
+
+        $providerMessageId = trim((string) ($message->provider_message_id ?? $message->wa_message_id ?? ''));
+
+        return $providerMessageId !== '' ? $providerMessageId : null;
     }
 }

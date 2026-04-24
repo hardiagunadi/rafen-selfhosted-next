@@ -168,15 +168,31 @@
                     <div class="row">
                         <div class="col-lg-4 col-xl-3 mb-3">
                             <div class="list-group sticky-top" style="top: 85px;">
-                                <a href="#wa-section-connection" class="list-group-item list-group-item-action">1. Koneksi Gateway</a>
-                                <a href="#wa-section-notification" class="list-group-item list-group-item-action">2. Notifikasi Otomatis</a>
-                                <a href="#wa-section-ticket-group" class="list-group-item list-group-item-action">3. Notifikasi Tiket ke Grup</a>
-                                <a href="#wa-section-blast" class="list-group-item list-group-item-action">4. Pengiriman WA Blast</a>
-                                <a href="#wa-section-antispam" class="list-group-item list-group-item-action">5. Anti-Spam</a>
-                                <a href="#wa-section-template" class="list-group-item list-group-item-action">6. Template Pesan</a>
+                                <a href="#wa-section-provider" class="list-group-item list-group-item-action">1. Provider Aktif</a>
+                                <a href="#wa-section-connection" class="list-group-item list-group-item-action">2. Koneksi Gateway Lokal</a>
+                                <a href="#wa-section-ycloud" class="list-group-item list-group-item-action">3. Konfigurasi YCloud</a>
+                                <a href="#wa-section-notification" class="list-group-item list-group-item-action">4. Notifikasi Otomatis</a>
+                                <a href="#wa-section-ticket-group" class="list-group-item list-group-item-action">5. Notifikasi Tiket ke Grup</a>
+                                <a href="#wa-section-blast" class="list-group-item list-group-item-action">6. Pengiriman WA Blast</a>
+                                <a href="#wa-section-antispam" class="list-group-item list-group-item-action">7. Anti-Spam</a>
+                                <a href="#wa-section-template" class="list-group-item list-group-item-action">8. Template Pesan</a>
                             </div>
                         </div>
                         <div class="col-lg-8 col-xl-9">
+                            <div class="card card-outline card-primary mb-3" id="wa-section-provider">
+                                <div class="card-header py-2"><strong>Provider WhatsApp Aktif</strong></div>
+                                <div class="card-body">
+                                    <div class="form-group mb-2">
+                                        <label for="wa_provider">Provider Pengiriman Default</label>
+                                        <select name="wa_provider" id="wa_provider" class="form-control">
+                                            <option value="local" {{ old('wa_provider', $settings->wa_provider ?? 'local') === 'local' ? 'selected' : '' }}>Gateway Lokal</option>
+                                            <option value="ycloud" {{ old('wa_provider', $settings->wa_provider ?? 'local') === 'ycloud' ? 'selected' : '' }}>YCloud</option>
+                                        </select>
+                                    </div>
+                                    <small id="wa-provider-hint" class="text-muted d-block mb-0"></small>
+                                </div>
+                            </div>
+
                             <div class="card card-outline card-info mb-3" id="wa-section-connection">
                                 <div class="card-header py-2"><strong>Koneksi Gateway</strong></div>
                                 <div class="card-body">
@@ -194,15 +210,73 @@
                                     <button type="button" class="btn btn-info btn-sm mb-2" id="btn-test-wa" onclick="testWaGateway()">
                                         <i class="fas fa-plug"></i> Test Koneksi
                                     </button>
+                                    <button type="button" class="btn btn-outline-success btn-sm mb-2 ml-1" id="btn-test-wa-ycloud" onclick="testWaYCloud()">
+                                        <i class="fas fa-paper-plane"></i> Test YCloud
+                                    </button>
                                     <button type="button" class="btn btn-outline-primary btn-sm mb-2 ml-1" id="btn-test-wa-meta" onclick="testWaMetaCloud()">
                                         <i class="fas fa-cloud"></i> Test Meta Cloud API
                                     </button>
                                     <div id="wa-test-result" class="mb-2"></div>
+                                    <div id="wa-ycloud-test-result" class="mb-2"></div>
                                     <div id="wa-meta-test-result" class="mb-2"></div>
                                     <div id="wa-test-detail" class="mt-1" style="display:none;">
                                         <small class="text-muted d-block mb-1">Detail respons gateway:</small>
                                         <pre id="wa-test-detail-body" class="bg-light border rounded p-2" style="font-size:11px;max-height:200px;overflow:auto;white-space:pre-wrap;"></pre>
                                     </div>
+                                </div>
+                            </div>
+
+                            <div class="card card-outline card-success mb-3" id="wa-section-ycloud">
+                                <div class="card-header py-2 d-flex align-items-center justify-content-between">
+                                    <strong>Konfigurasi YCloud</strong>
+                                    <span class="badge badge-success">Baru</span>
+                                </div>
+                                <div class="card-body">
+                                    <div class="form-group">
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" class="custom-control-input" id="ycloud_enabled" name="ycloud_enabled" value="1" {{ old('ycloud_enabled', $settings->ycloud_enabled ?? false) ? 'checked' : '' }}>
+                                            <label class="custom-control-label" for="ycloud_enabled">Aktifkan YCloud untuk tenant ini</label>
+                                        </div>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group col-md-6">
+                                            <label for="ycloud_api_key">YCloud API Key</label>
+                                            <textarea name="ycloud_api_key" id="ycloud_api_key" class="form-control" rows="4" placeholder="Masukkan API key YCloud">{{ old('ycloud_api_key', $settings->ycloud_api_key) }}</textarea>
+                                        </div>
+                                        <div class="form-group col-md-6">
+                                            <label for="ycloud_waba_id">WABA ID</label>
+                                            <input type="text" name="ycloud_waba_id" id="ycloud_waba_id" class="form-control" value="{{ old('ycloud_waba_id', $settings->ycloud_waba_id) }}" placeholder="Contoh: waba_xxx">
+                                        </div>
+                                    </div>
+                                    <div class="form-row">
+                                        <div class="form-group col-md-6">
+                                            <label for="ycloud_phone_number_id">Phone Number ID</label>
+                                            <input type="text" name="ycloud_phone_number_id" id="ycloud_phone_number_id" class="form-control" value="{{ old('ycloud_phone_number_id', $settings->ycloud_phone_number_id) }}" placeholder="Contoh: pn_xxx">
+                                        </div>
+                                        <div class="form-group col-md-6">
+                                            <label for="ycloud_business_number">Nomor Bisnis YCloud</label>
+                                            <input type="text" name="ycloud_business_number" id="ycloud_business_number" class="form-control" value="{{ old('ycloud_business_number', $settings->ycloud_business_number) }}" placeholder="Contoh: 62812xxxxxxx">
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="ycloud_webhook_secret">Webhook Secret</label>
+                                        <input type="text" name="ycloud_webhook_secret" id="ycloud_webhook_secret" class="form-control" value="{{ old('ycloud_webhook_secret', $settings->ycloud_webhook_secret) }}" placeholder="Otomatis dibuat jika dikosongkan">
+                                    </div>
+                                    <div class="form-group mb-3">
+                                        <div class="custom-control custom-switch">
+                                            <input type="checkbox" class="custom-control-input" id="ycloud_allow_group_fallback_local" name="ycloud_allow_group_fallback_local" value="1" {{ old('ycloud_allow_group_fallback_local', $settings->ycloud_allow_group_fallback_local ?? true) ? 'checked' : '' }}>
+                                            <label class="custom-control-label" for="ycloud_allow_group_fallback_local">Izinkan fallback grup ke gateway lokal</label>
+                                        </div>
+                                    </div>
+                                    <div class="btn-group btn-group-sm d-flex mb-2" role="group">
+                                        <button type="button" class="btn btn-outline-success w-100" id="btn-fetch-ycloud-phone-numbers" onclick="fetchYCloudPhoneNumbers()">
+                                            <i class="fas fa-sync-alt mr-1"></i>Ambil Nomor YCloud
+                                        </button>
+                                        <button type="button" class="btn btn-outline-primary w-100" onclick="testWaYCloud()">
+                                            <i class="fas fa-vial mr-1"></i>Test YCloud
+                                        </button>
+                                    </div>
+                                    <div id="wa-ycloud-phone-list" class="mb-0"></div>
                                 </div>
                             </div>
 
@@ -327,14 +401,14 @@
                                             <input type="number" name="wa_antispam_delay_ms" class="form-control"
                                                 value="{{ old('wa_antispam_delay_ms', number_format((($settings->wa_antispam_delay_ms ?? 2000) / 1000), 1, '.', '')) }}"
                                                 min="0.5" max="10" step="0.1">
-                                            <small class="text-muted">Rekomendasi: 2 detik.</small>
+                                            <small class="text-muted">Untuk provider lokal, self-hosted akan memaksa minimal 8 detik saat disimpan.</small>
                                         </div>
                                         <div class="form-group col-md-6">
                                             <label>Maks Pesan per Menit</label>
                                             <input type="number" name="wa_antispam_max_per_minute" class="form-control"
                                                 value="{{ old('wa_antispam_max_per_minute', $settings->wa_antispam_max_per_minute ?? 10) }}"
                                                 min="1" max="20">
-                                            <small class="text-muted">Rekomendasi: 10.</small>
+                                            <small class="text-muted">Untuk provider lokal, self-hosted membatasi maksimal 4 pesan per menit.</small>
                                         </div>
                                     </div>
                                     <div class="form-group mb-0">
@@ -756,6 +830,9 @@
                         <span class="badge badge-success mr-2">Terkonfigurasi</span>
                         <small class="text-muted text-truncate">{{ config('wa.multi_session.public_url') }}</small>
                     </div>
+                    <div class="small text-muted mb-2">
+                        Provider default: <strong>{{ $settings->usesYCloud() ? 'YCloud' : 'Gateway Lokal' }}</strong>
+                    </div>
                     @if($canAccessWaBlast)
                     <a href="{{ route('wa-blast.index') }}" class="btn btn-outline-success btn-sm btn-block">
                         <i class="fas fa-paper-plane mr-1"></i> Buka WA Blast
@@ -1121,6 +1198,124 @@ function testWaMetaCloud() {
     });
 }
 
+function testWaYCloud() {
+    var resultDiv = document.getElementById('wa-ycloud-test-result');
+    var btn = document.getElementById('btn-test-wa-ycloud');
+
+    resultDiv.innerHTML = '<div class="alert alert-info mb-0"><i class="fas fa-spinner fa-spin mr-1"></i> Mengirim test ke YCloud...</div>';
+    btn.disabled = true;
+
+    fetchJson('{{ route("tenant-settings.test-wa-ycloud") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+        body: JSON.stringify(getYCloudPayload())
+    })
+    .then(function (result) {
+        var data = result.data;
+        btn.disabled = false;
+
+        if (data.success) {
+            resultDiv.innerHTML =
+                '<div class="alert alert-success mb-0">' +
+                    '<strong><i class="fas fa-check-circle mr-1"></i> Test YCloud Berhasil</strong><br>' +
+                    '<span class="small">' + escapeHtml(data.message || '') + '</span><br>' +
+                    '<span class="small text-muted">Tujuan: ' + escapeHtml(data.recipient || '-') + '</span>' +
+                '</div>';
+
+            return;
+        }
+
+        resultDiv.innerHTML =
+            '<div class="alert alert-danger mb-0">' +
+                '<strong><i class="fas fa-times-circle mr-1"></i> Test YCloud Gagal</strong><br>' +
+                '<span class="small">' + escapeHtml(data.message || 'Unknown error') + '</span>' +
+            '</div>';
+    })
+    .catch(function (error) {
+        btn.disabled = false;
+        resultDiv.innerHTML = '<div class="alert alert-danger mb-0"><strong><i class="fas fa-times-circle mr-1"></i> Permintaan Gagal</strong><br><span class="small">' + escapeHtml(error.message) + '</span></div>';
+    });
+}
+
+function fetchYCloudPhoneNumbers() {
+    var resultDiv = document.getElementById('wa-ycloud-phone-list');
+    var btn = document.getElementById('btn-fetch-ycloud-phone-numbers');
+
+    resultDiv.innerHTML = '<div class="alert alert-info mb-0"><i class="fas fa-spinner fa-spin mr-1"></i> Mengambil daftar nomor YCloud...</div>';
+    btn.disabled = true;
+
+    fetchJson('{{ route("tenant-settings.fetch-ycloud-phone-numbers") }}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': '{{ csrf_token() }}' },
+        body: JSON.stringify(getYCloudPayload())
+    })
+    .then(function (result) {
+        var data = result.data;
+        btn.disabled = false;
+
+        if (!data.success) {
+            resultDiv.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(data.message || 'Gagal mengambil daftar nomor YCloud.') + '</div>';
+
+            return;
+        }
+
+        var items = Array.isArray(data.phone_numbers) ? data.phone_numbers : [];
+        if (!items.length) {
+            resultDiv.innerHTML = '<div class="alert alert-warning mb-0">Belum ada nomor YCloud yang ditemukan untuk kredensial ini.</div>';
+
+            return;
+        }
+
+        var html = items.map(function (item) {
+            var payload = encodeURIComponent(JSON.stringify(item));
+
+            return '' +
+                '<button type="button" class="list-group-item list-group-item-action text-left" data-ycloud-phone="' + payload + '">' +
+                    '<div class="font-weight-bold">' + escapeHtml(item.verified_name || 'Tanpa Nama') + '</div>' +
+                    '<div class="small text-muted">Nomor: ' + escapeHtml(item.phone_number || '-') + ' | Status: ' + escapeHtml(item.status || '-') + '</div>' +
+                    '<div class="small text-muted">Phone Number ID: ' + escapeHtml(item.id || '-') + '</div>' +
+                '</button>';
+        }).join('');
+
+        resultDiv.innerHTML = '<div class="list-group">' + html + '</div><small class="text-muted d-block mt-2">Klik salah satu nomor untuk mengisi field Phone Number ID, WABA ID, dan nomor bisnis.</small>';
+
+        resultDiv.querySelectorAll('[data-ycloud-phone]').forEach(function (button) {
+            button.addEventListener('click', function () {
+                try {
+                    var item = JSON.parse(decodeURIComponent(button.getAttribute('data-ycloud-phone') || ''));
+                    selectYCloudPhoneNumber(item);
+                } catch (error) {
+                    window.AppAjax.showToast('Data nomor YCloud tidak valid.', 'danger');
+                }
+            });
+        });
+    })
+    .catch(function (error) {
+        btn.disabled = false;
+        resultDiv.innerHTML = '<div class="alert alert-danger mb-0">' + escapeHtml(error.message) + '</div>';
+    });
+}
+
+function selectYCloudPhoneNumber(item) {
+    var phoneNumberInput = document.getElementById('ycloud_phone_number_id');
+    var wabaIdInput = document.getElementById('ycloud_waba_id');
+    var businessNumberInput = document.getElementById('ycloud_business_number');
+
+    if (phoneNumberInput) {
+        phoneNumberInput.value = item.id || '';
+    }
+
+    if (wabaIdInput) {
+        wabaIdInput.value = item.waba_id || wabaIdInput.value || '';
+    }
+
+    if (businessNumberInput) {
+        businessNumberInput.value = item.phone_number || businessNumberInput.value || '';
+    }
+
+    window.AppAjax.showToast('Data nomor YCloud berhasil diisi ke form.', 'success');
+}
+
 function getTenantPayload() {
     var tenantId = document.getElementById('wa_tenant_id_js')?.value || '';
     if (!tenantId) {
@@ -1128,6 +1323,33 @@ function getTenantPayload() {
     }
 
     return { tenant_id: Number(tenantId) };
+}
+
+function getYCloudPayload() {
+    var payload = Object.assign({}, getTenantPayload());
+    payload.ycloud_api_key = (document.getElementById('ycloud_api_key') || {}).value || '';
+    payload.ycloud_waba_id = (document.getElementById('ycloud_waba_id') || {}).value || '';
+    payload.ycloud_phone_number_id = (document.getElementById('ycloud_phone_number_id') || {}).value || '';
+    payload.ycloud_business_number = (document.getElementById('ycloud_business_number') || {}).value || '';
+
+    return payload;
+}
+
+function renderWaProviderHint() {
+    var select = document.getElementById('wa_provider');
+    var hint = document.getElementById('wa-provider-hint');
+
+    if (!select || !hint) {
+        return;
+    }
+
+    if (select.value === 'ycloud') {
+        hint.textContent = 'Mode ini memakai YCloud sebagai provider default. Gateway lokal tetap tersedia untuk device, inbox, dan fallback.';
+
+        return;
+    }
+
+    hint.textContent = 'Mode ini memakai gateway lokal sebagai default. Self-hosted akan menerapkan batas aman anti-spam saat konfigurasi disimpan.';
 }
 
 function renderWaDeviceBadge(isDefault) {
@@ -2077,6 +2299,12 @@ function restartWaService() {
 
 document.addEventListener('DOMContentLoaded', function () {
     setupWaWizard();
+
+    var providerSelect = document.getElementById('wa_provider');
+    if (providerSelect) {
+        providerSelect.addEventListener('change', renderWaProviderHint);
+        renderWaProviderHint();
+    }
 
     var deviceForm = document.getElementById('wa-device-form');
     if (deviceForm) {

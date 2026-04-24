@@ -536,6 +536,7 @@ class WaGatewayService
                 'sent_by_id' => $this->sentById,
                 'sent_by_name' => $this->sentByName,
                 'event' => $context['event'] ?? 'unknown',
+                'provider' => 'local',
                 'phone' => $phone ?: null,
                 'phone_normalized' => $phoneNormalized ?: null,
                 'status' => $status,

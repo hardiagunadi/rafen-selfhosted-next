@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\FetchYCloudPhoneNumbersRequest;
 use App\Http\Requests\TestMetaWhatsAppRequest;
+use App\Http\Requests\TestYCloudWhatsAppRequest;
 use App\Http\Requests\UpdateTenantMapCacheRequest;
 use App\Http\Requests\UpdateTenantModuleSettingsRequest;
 use App\Models\BankAccount;
@@ -18,6 +20,7 @@ use App\Services\MidtransService;
 use App\Services\TripayService;
 use App\Services\WaGatewayService;
 use App\Services\WaMultiSessionManager;
+use App\Services\YCloudWhatsAppService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -515,6 +518,8 @@ class TenantSettingsController extends Controller
         }
 
         $validated = $request->validate([
+            'wa_provider' => 'nullable|string|in:local,ycloud',
+            'wa_cost_strategy' => 'nullable|string|in:optimize_free_window,always_paid,always_free_window',
             'wa_notify_registration' => 'boolean',
             'wa_notify_invoice' => 'boolean',
             'wa_notify_payment' => 'boolean',
@@ -527,6 +532,13 @@ class TenantSettingsController extends Controller
             'wa_antispam_delay_ms' => 'numeric|min:0.5|max:10',
             'wa_antispam_max_per_minute' => 'integer|min:1|max:20',
             'wa_msg_randomize' => 'boolean',
+            'ycloud_enabled' => 'boolean',
+            'ycloud_api_key' => 'nullable|string|max:10000',
+            'ycloud_waba_id' => 'nullable|string|max:100',
+            'ycloud_phone_number_id' => 'nullable|string|max:100',
+            'ycloud_business_number' => 'nullable|string|max:30',
+            'ycloud_webhook_secret' => 'nullable|string|max:255',
+            'ycloud_allow_group_fallback_local' => 'boolean',
             'wa_template_registration' => 'nullable|string|max:10000',
             'wa_template_invoice' => 'nullable|string|max:10000',
             'wa_template_payment' => 'nullable|string|max:10000',
@@ -545,6 +557,8 @@ class TenantSettingsController extends Controller
             'wa_antispam_enabled',
             'wa_msg_randomize',
             'wa_notify_on_process',
+            'ycloud_enabled',
+            'ycloud_allow_group_fallback_local',
         ];
         foreach ($waBooleanFields as $field) {
             $validated[$field] = $request->boolean($field);
@@ -590,10 +604,50 @@ class TenantSettingsController extends Controller
         $validated['wa_webhook_secret'] = trim((string) ($settings->wa_webhook_secret ?? '')) !== ''
             ? $settings->wa_webhook_secret
             : 'tenant-'.$settings->user_id;
+        $validated['wa_provider'] = (string) ($validated['wa_provider'] ?? ($settings->wa_provider ?? 'local'));
+        $validated['wa_cost_strategy'] = (string) ($validated['wa_cost_strategy'] ?? ($settings->wa_cost_strategy ?? 'optimize_free_window'));
+        $validated['ycloud_webhook_secret'] = trim((string) ($validated['ycloud_webhook_secret'] ?? '')) !== ''
+            ? trim((string) ($validated['ycloud_webhook_secret'] ?? ''))
+            : ((string) ($settings->ycloud_webhook_secret ?? '') !== '' ? (string) $settings->ycloud_webhook_secret : 'ycloud-tenant-'.$settings->user_id);
+        $validated = $this->applySafeLocalWaSettings($validated, $settings);
 
         $settings->update($validated);
 
         return back()->with('success', 'Pengaturan WhatsApp berhasil diperbarui.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $validated
+     * @return array<string, mixed>
+     */
+    private function applySafeLocalWaSettings(array $validated, TenantSettings $settings): array
+    {
+        if (($validated['wa_provider'] ?? $settings->wa_provider ?? 'local') === 'ycloud') {
+            return $validated;
+        }
+
+        $validated['wa_antispam_delay_ms'] = max(
+            TenantSettings::SAFE_WA_ANTISPAM_DELAY_MS,
+            (int) ($validated['wa_antispam_delay_ms'] ?? $settings->wa_antispam_delay_ms ?? TenantSettings::SAFE_WA_ANTISPAM_DELAY_MS)
+        );
+        $validated['wa_antispam_max_per_minute'] = max(
+            1,
+            min(
+                TenantSettings::SAFE_WA_ANTISPAM_MAX_PER_MINUTE,
+                (int) ($validated['wa_antispam_max_per_minute'] ?? $settings->wa_antispam_max_per_minute ?? TenantSettings::SAFE_WA_ANTISPAM_MAX_PER_MINUTE)
+            )
+        );
+        $validated['wa_blast_delay_min_ms'] = max(
+            TenantSettings::SAFE_WA_BLAST_DELAY_MIN_MS,
+            (int) ($validated['wa_blast_delay_min_ms'] ?? $settings->wa_blast_delay_min_ms ?? TenantSettings::SAFE_WA_BLAST_DELAY_MIN_MS)
+        );
+        $validated['wa_blast_delay_max_ms'] = max(
+            TenantSettings::SAFE_WA_BLAST_DELAY_MAX_MS,
+            (int) ($validated['wa_blast_delay_max_ms'] ?? $settings->wa_blast_delay_max_ms ?? TenantSettings::SAFE_WA_BLAST_DELAY_MAX_MS),
+            (int) $validated['wa_blast_delay_min_ms']
+        );
+
+        return $validated;
     }
 
     private function convertSecondsToMilliseconds(float $seconds): int
@@ -683,6 +737,118 @@ class TenantSettingsController extends Controller
             'http_status' => $result['status'],
             'recipient' => $result['recipient'],
             'meta_response' => $result['data'],
+        ], $result['ok'] ? 200 : 422);
+    }
+
+    public function testWaYCloud(TestYCloudWhatsAppRequest $request)
+    {
+        if ($request->user()->isSubUser()) {
+            abort(403);
+        }
+
+        $settings = $this->resolveWaSettingsForRequest($request);
+        if (! $settings) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant tidak ditemukan.',
+            ], 422);
+        }
+
+        $apiKey = trim((string) ($request->validated('ycloud_api_key') ?? $settings->ycloud_api_key ?? ''));
+        $phoneNumberId = trim((string) ($request->validated('ycloud_phone_number_id') ?? $settings->ycloud_phone_number_id ?? ''));
+        $wabaId = trim((string) ($request->validated('ycloud_waba_id') ?? $settings->ycloud_waba_id ?? ''));
+        $businessNumber = trim((string) ($request->validated('ycloud_business_number') ?? $settings->ycloud_business_number ?? ''));
+
+        $service = new YCloudWhatsAppService(
+            apiKey: $apiKey,
+            phoneNumberId: $phoneNumberId,
+            baseUrl: (string) config('services.ycloud_whatsapp.base_url', 'https://api.ycloud.com/v2'),
+            wabaId: $wabaId,
+            businessNumber: $businessNumber,
+        );
+
+        $targetPhone = trim((string) ($request->validated('phone') ?? ''));
+        if ($targetPhone === '') {
+            $targetPhone = trim((string) ($settings->business_phone ?? ''));
+        }
+
+        if (! $service->isConfigured()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'YCloud tenant belum dikonfigurasi. Isi API key dan phone number id lebih dulu.',
+            ], 422);
+        }
+
+        if ($targetPhone === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Nomor tujuan kosong. Isi nomor bisnis di pengaturan atau kirim nomor manual saat test.',
+            ], 422);
+        }
+
+        if ($businessNumber !== '' && $service->normalizeRecipient($targetPhone) === $service->normalizeRecipient($businessNumber)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Nomor tujuan test tidak boleh sama dengan nomor bisnis YCloud. Isi nomor lain pada kolom test.',
+            ], 422);
+        }
+
+        $businessName = trim((string) ($settings->business_name ?? 'Rafen'));
+        $message = "✅ Test YCloud berhasil diproses.\n"
+            ."Tenant: {$businessName}\n"
+            .'Waktu: '.now()->format('d/m/Y H:i:s');
+
+        $result = $service->sendTextMessage($targetPhone, $message);
+
+        return response()->json([
+            'success' => $result['ok'],
+            'message' => $result['ok']
+                ? 'Pesan test berhasil dikirim ke YCloud.'
+                : ('Gagal kirim test YCloud: '.($result['message'] ?: 'unknown error')),
+            'http_status' => $result['status'],
+            'recipient' => $result['recipient'],
+            'ycloud_response' => $result['data'],
+        ], $result['ok'] ? 200 : 422);
+    }
+
+    public function fetchYCloudPhoneNumbers(FetchYCloudPhoneNumbersRequest $request)
+    {
+        if ($request->user()->isSubUser()) {
+            abort(403);
+        }
+
+        $settings = $this->resolveWaSettingsForRequest($request);
+        if (! $settings) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tenant tidak ditemukan.',
+            ], 422);
+        }
+
+        $apiKey = trim((string) ($request->validated('ycloud_api_key') ?? $settings->ycloud_api_key ?? ''));
+        $wabaId = trim((string) ($request->validated('ycloud_waba_id') ?? $settings->ycloud_waba_id ?? ''));
+        $service = new YCloudWhatsAppService(
+            apiKey: $apiKey,
+            phoneNumberId: null,
+            baseUrl: (string) config('services.ycloud_whatsapp.base_url', 'https://api.ycloud.com/v2'),
+            wabaId: $wabaId,
+        );
+
+        if (! $service->hasApiKey()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'API key YCloud belum diisi.',
+            ], 422);
+        }
+
+        $result = $service->listPhoneNumbers($wabaId);
+
+        return response()->json([
+            'success' => $result['ok'],
+            'message' => $result['message'],
+            'http_status' => $result['status'],
+            'phone_numbers' => $result['phone_numbers'],
+            'ycloud_response' => $result['data'],
         ], $result['ok'] ? 200 : 422);
     }
 

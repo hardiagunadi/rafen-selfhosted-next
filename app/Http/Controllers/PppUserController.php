@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StorePppUserRequest;
+use App\Http\Requests\StoreServiceNoteRequest;
 use App\Http\Requests\UpdatePppUserRequest;
+use App\Models\BankAccount;
 use App\Models\Invoice;
 use App\Models\MikrotikConnection;
 use App\Models\Odp;
@@ -11,6 +13,7 @@ use App\Models\PppProfile;
 use App\Models\PppUser;
 use App\Models\ProfileGroup;
 use App\Models\RadiusAccount;
+use App\Models\ServiceNote;
 use App\Models\TenantSettings;
 use App\Models\User;
 use App\Services\GenieAcsClient;
@@ -764,6 +767,121 @@ class PppUserController extends Controller
         return view('ppp-users.nota-aktivasi', compact('pppUser', 'settings'));
     }
 
+    public function notaLayanan(Request $request, PppUser $pppUser): View
+    {
+        $requestedType = trim((string) $request->query('type', 'aktivasi'));
+
+        return $this->buildNotaLayananView($pppUser, $requestedType);
+    }
+
+    public function storeServiceNote(StoreServiceNoteRequest $request, PppUser $pppUser): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $validated = $request->validated();
+        $itemLines = collect($validated['item_lines'] ?? [])
+            ->map(function (array $item): array {
+                return [
+                    'label' => trim((string) ($item['label'] ?? '')),
+                    'amount' => round((float) ($item['amount'] ?? 0), 2),
+                ];
+            })
+            ->filter(fn (array $item): bool => $item['label'] !== '' || $item['amount'] > 0)
+            ->values();
+
+        if ($itemLines->isEmpty()) {
+            throw ValidationException::withMessages([
+                'item_lines' => 'Minimal 1 item biaya harus diisi.',
+            ]);
+        }
+
+        $subtotal = (float) $itemLines->sum('amount');
+
+        if ($subtotal <= 0) {
+            throw ValidationException::withMessages([
+                'item_lines' => 'Total nota harus lebih dari nol.',
+            ]);
+        }
+
+        $documentNumber = trim((string) ($validated['document_number'] ?? ''));
+
+        if ($documentNumber === '' || ServiceNote::query()->where('owner_id', $pppUser->owner_id)->where('document_number', $documentNumber)->exists()) {
+            $documentNumber = ServiceNote::generateNumber((int) $pppUser->owner_id);
+        }
+
+        $serviceType = in_array($validated['service_type'], ['pppoe', 'hotspot'], true)
+            ? $validated['service_type']
+            : 'general';
+        $paymentMethod = $validated['payment_method'];
+        $transferAccounts = [];
+
+        if ($paymentMethod === 'transfer') {
+            $transferAccounts = BankAccount::query()
+                ->where('user_id', $pppUser->owner_id)
+                ->where('is_active', true)
+                ->orderByDesc('is_primary')
+                ->orderByDesc('id')
+                ->get(['bank_name', 'account_number', 'account_name', 'branch'])
+                ->map(fn (BankAccount $bankAccount): array => [
+                    'bank_name' => $bankAccount->bank_name,
+                    'account_number' => $bankAccount->account_number,
+                    'account_name' => $bankAccount->account_name,
+                    'branch' => $bankAccount->branch,
+                ])
+                ->values()
+                ->all();
+
+            if ($transferAccounts === []) {
+                throw ValidationException::withMessages([
+                    'payment_method' => 'Rekening pembayaran aktif belum tersedia. Tambahkan minimal satu rekening pembayaran terlebih dahulu sebelum membuat nota transfer.',
+                ]);
+            }
+        }
+
+        $paidAt = Carbon::parse((string) $validated['note_date'])
+            ->setTimeFrom(now());
+
+        $serviceNote = ServiceNote::query()->create([
+            'owner_id' => $pppUser->owner_id,
+            'ppp_user_id' => $pppUser->id,
+            'created_by' => $user->id,
+            'paid_by' => $user->id,
+            'note_type' => $validated['note_type'],
+            'document_number' => $documentNumber,
+            'document_title' => trim((string) $validated['document_title']),
+            'summary_title' => trim((string) $validated['summary_title']),
+            'service_type' => $serviceType,
+            'status' => 'paid',
+            'note_date' => $validated['note_date'],
+            'customer_id' => $pppUser->customer_id,
+            'customer_name' => $pppUser->customer_name,
+            'customer_phone' => $pppUser->nomor_hp,
+            'customer_address' => $pppUser->alamat,
+            'package_name' => $pppUser->profile?->name,
+            'item_lines' => $itemLines->all(),
+            'subtotal' => $subtotal,
+            'total' => $subtotal,
+            'payment_method' => $paymentMethod,
+            'transfer_accounts' => $transferAccounts !== [] ? $transferAccounts : null,
+            'show_service_section' => (bool) ($validated['show_service_section'] ?? true),
+            'cash_received' => $paymentMethod === 'cash' ? $subtotal : null,
+            'notes' => $validated['notes'] ?? null,
+            'footer' => $validated['footer'] ?? null,
+            'paid_at' => $paidAt,
+            'printed_at' => now(),
+        ]);
+
+        $this->logActivity('service_note_created', 'ServiceNote', $serviceNote->id, $serviceNote->document_number, (int) $serviceNote->owner_id, [
+            'ppp_user_id' => $pppUser->id,
+            'total' => $serviceNote->total,
+            'note_type' => $serviceNote->note_type,
+        ]);
+
+        return redirect()
+            ->route('service-notes.print', $serviceNote)
+            ->with('status', 'Nota layanan berhasil disimpan sebagai pendapatan.');
+    }
+
     /**
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
@@ -1211,6 +1329,102 @@ class PppUserController extends Controller
         }
 
         return $query->exists();
+    }
+
+    private function buildNotaLayananView(PppUser $pppUser, string $requestedType): View
+    {
+        /** @var User $user */
+        $user = auth()->user();
+
+        if (! $user->isSuperAdmin() && $pppUser->owner_id !== $user->effectiveOwnerId()) {
+            abort(403);
+        }
+
+        $pppUser->load(['profile', 'owner']);
+
+        $settings = TenantSettings::query()
+            ->where('user_id', $pppUser->owner_id)
+            ->first();
+        $paymentBankAccounts = BankAccount::query()
+            ->where('user_id', $pppUser->owner_id)
+            ->where('is_active', true)
+            ->orderByDesc('is_primary')
+            ->orderByDesc('id')
+            ->get(['bank_name', 'account_number', 'account_name', 'branch']);
+
+        $notaTypes = $this->notaTypePresets($pppUser);
+        $notaType = array_key_exists($requestedType, $notaTypes) ? $requestedType : 'aktivasi';
+        $notaDefaults = $notaTypes[$notaType];
+        $defaultDocumentNumber = ServiceNote::generateNumber((int) $pppUser->owner_id);
+
+        return view('ppp-users.nota-layanan', compact(
+            'defaultDocumentNumber',
+            'notaDefaults',
+            'notaType',
+            'notaTypes',
+            'paymentBankAccounts',
+            'pppUser',
+            'settings',
+        ));
+    }
+
+    /**
+     * @return array<string, array<string, mixed>>
+     */
+    private function notaTypePresets(PppUser $pppUser): array
+    {
+        $installationFee = (float) ($pppUser->biaya_instalasi ?? 0);
+        $defaultNotes = trim((string) ($pppUser->catatan ?? ''));
+
+        return [
+            'aktivasi' => [
+                'label' => 'Nota Aktivasi',
+                'document_title' => 'NOTA AKTIVASI PEMASANGAN BARU',
+                'summary_title' => 'BIAYA AKTIVASI',
+                'description' => 'Preset untuk biaya aktivasi pelanggan baru.',
+                'show_service_section' => true,
+                'item_lines' => [
+                    ['label' => 'Biaya Aktivasi', 'amount' => $installationFee],
+                ],
+                'notes' => $defaultNotes,
+            ],
+            'pemasangan' => [
+                'label' => 'Nota Biaya Pemasangan',
+                'document_title' => 'NOTA BIAYA PEMASANGAN',
+                'summary_title' => 'RINCIAN PEMASANGAN',
+                'description' => 'Preset untuk biaya pemasangan layanan di lokasi pelanggan.',
+                'show_service_section' => true,
+                'item_lines' => [
+                    ['label' => 'Biaya Pemasangan', 'amount' => $installationFee],
+                    ['label' => 'Material / Perlengkapan', 'amount' => 0],
+                ],
+                'notes' => $defaultNotes,
+            ],
+            'perbaikan' => [
+                'label' => 'Nota Biaya Perbaikan',
+                'document_title' => 'NOTA BIAYA PERBAIKAN',
+                'summary_title' => 'RINCIAN PERBAIKAN',
+                'description' => 'Preset untuk biaya perbaikan, servis, atau penggantian perangkat.',
+                'show_service_section' => true,
+                'item_lines' => [
+                    ['label' => 'Biaya Perbaikan', 'amount' => 0],
+                    ['label' => 'Penggantian Material', 'amount' => 0],
+                ],
+                'notes' => $defaultNotes,
+            ],
+            'lainnya' => [
+                'label' => 'Nota Lainnya',
+                'document_title' => 'NOTA BIAYA LAINNYA',
+                'summary_title' => 'RINCIAN BIAYA',
+                'description' => 'Preset fleksibel untuk kebutuhan nota selain aktivasi, pemasangan, atau perbaikan.',
+                'show_service_section' => true,
+                'item_lines' => [
+                    ['label' => 'Biaya Layanan', 'amount' => 0],
+                    ['label' => 'Biaya Tambahan', 'amount' => 0],
+                ],
+                'notes' => $defaultNotes,
+            ],
+        ];
     }
 
     private function enforceOverdueAction(PppUser $user): void

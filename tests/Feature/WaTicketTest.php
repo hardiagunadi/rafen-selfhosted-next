@@ -74,6 +74,20 @@ it('blocks keuangan from ticket index', function () {
     $this->actingAs($keu)->get(route('wa-tickets.index'))->assertForbidden();
 });
 
+it('renders the create ticket modal with modal-safe customer select behavior', function () {
+    $tenant = ticketTenant();
+    $cs = ticketSubUser($tenant->id, 'cs');
+
+    $this->actingAs($cs)
+        ->get(route('wa-tickets.index'))
+        ->assertOk()
+        ->assertSee('id="modalCreateTicket"', false)
+        ->assertSee('data-backdrop="static"', false)
+        ->assertSee('data-keyboard="false"', false)
+        ->assertSee('data-native-select="true"', false)
+        ->assertSee('mousedown mouseup click touchstart touchend', false);
+});
+
 // ── store ──────────────────────────────────────────────────────────────────────
 
 it('cs can create a ticket from a conversation', function () {

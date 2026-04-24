@@ -7,10 +7,10 @@ use App\Models\MikrotikConnection;
 use App\Models\PppUser;
 use App\Models\RadiusAccount;
 use App\Models\User;
+use App\Services\MikrotikApiClient;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Process;
 use Illuminate\View\View;
 
@@ -67,51 +67,19 @@ class DashboardController extends Controller
             'router_total' => $routers->count(),
             'router_online' => $routers->where('is_online', true)->count(),
             'router_offline' => $routers->where('is_online', false)->count(),
-            'ppp_users'           => PppUser::query()->accessibleBy($user)->count(),
-            'ppp_active'          => PppUser::query()->accessibleBy($user)->where('status_akun', 'enable')->count(),
-            'ppp_isolir'          => PppUser::query()->accessibleBy($user)->where('status_akun', 'isolir')->count(),
-            'invoice_paid_month'  => $invoicesMonth->where('status', 'paid')->count(),
+            'ppp_users' => PppUser::query()->accessibleBy($user)->count(),
+            'ppp_active' => PppUser::query()->accessibleBy($user)->where('status_akun', 'enable')->count(),
+            'ppp_isolir' => PppUser::query()->accessibleBy($user)->where('status_akun', 'isolir')->count(),
+            'invoice_paid_month' => $invoicesMonth->where('status', 'paid')->count(),
             'invoice_total_month' => $invoicesMonth->count(),
         ];
-
-        $serviceInfo = Collection::make([
-            [
-                'label' => 'CORE RADIUS',
-                'status' => 'Running',
-                'color' => 'success',
-                'action' => 'Restart',
-                'action_route' => route('radius.restart'),
-                'count' => null,
-            ],
-            [
-                'label' => 'MIKROTIK',
-                'status' => $stats['router_online'].' / '.$stats['router_total'].' online',
-                'color' => $stats['router_online'] > 0 ? 'info' : 'danger',
-                'action' => null,
-                'count' => $stats['router_total'],
-            ],
-            [
-                'label' => 'SESSION',
-                'status' => ($stats['ppp_online'] + $stats['hotspot_online']).' akun aktif',
-                'color' => 'info',
-                'action' => null,
-                'count' => $stats['ppp_online'] + $stats['hotspot_online'],
-            ],
-            [
-                'label' => 'PELANGGAN',
-                'status' => $stats['ppp_users'].' terdaftar',
-                'color' => 'primary',
-                'action' => null,
-                'count' => $stats['ppp_users'],
-            ],
-        ]);
 
         // Daftar owner hanya untuk super admin (untuk filter switcher)
         $owners = $user->isSuperAdmin()
             ? User::query()->tenants()->orderBy('name')->get()
             : collect();
 
-        return view('dashboard', compact('stats', 'serviceInfo', 'owners', 'hotspotModuleEnabled'));
+        return view('dashboard', compact('stats', 'owners', 'hotspotModuleEnabled'));
     }
 
     public function apiDashboard(Request $request): View
@@ -163,7 +131,7 @@ class DashboardController extends Controller
     public function restartGenieacs(Request $request): JsonResponse
     {
         $services = ['genieacs-cwmp', 'genieacs-nbi', 'genieacs-fs'];
-        $errors    = [];
+        $errors = [];
 
         foreach ($services as $svc) {
             $result = Process::timeout(30)->run("sudo systemctl restart {$svc}");
@@ -437,7 +405,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $result = $client->command($menuMap[$menu]);
             $client->disconnect();
 
@@ -465,7 +433,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $attrs = ['name' => $name, 'password' => $password, 'service' => $service];
             if ($profile !== '') {
                 $attrs['profile'] = $profile;
@@ -488,7 +456,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $attrs = ['.id' => $id];
             if ($request->filled('password')) {
                 $attrs['password'] = $request->string('password')->toString();
@@ -520,7 +488,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $client->command('/ppp/secret/remove', ['.id' => $id]);
             $client->disconnect();
 
@@ -539,7 +507,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $client->command('/ppp/active/remove', ['.id' => $id]);
             $client->disconnect();
 
@@ -563,7 +531,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $attrs = ['name' => $name];
             if ($request->filled('password')) {
                 $attrs['password'] = $request->string('password')->toString();
@@ -592,7 +560,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $attrs = ['.id' => $id];
             if ($request->filled('password')) {
                 $attrs['password'] = $request->string('password')->toString();
@@ -624,7 +592,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $client->command('/ip/hotspot/user/remove', ['.id' => $id]);
             $client->disconnect();
 
@@ -648,7 +616,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $attrs = ['mac-address' => $macAddress, 'type' => 'bypassed'];
             if ($request->filled('address')) {
                 $attrs['address'] = $request->string('address')->toString();
@@ -680,7 +648,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $attrs = ['.id' => $id];
             if ($request->filled('mac-address')) {
                 $attrs['mac-address'] = $request->string('mac-address')->toString();
@@ -715,7 +683,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $client->command('/ip/hotspot/ip-binding/remove', ['.id' => $id]);
             $client->disconnect();
 
@@ -734,7 +702,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $client->command('/ip/hotspot/active/remove', ['.id' => $id]);
             $client->disconnect();
 
@@ -759,7 +727,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $attrs = ['name' => $name, 'interface' => $interface];
             if ($request->filled('service-name')) {
                 $attrs['service-name'] = $request->string('service-name')->toString();
@@ -791,7 +759,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $attrs = ['.id' => $id];
             if ($request->filled('interface')) {
                 $attrs['interface'] = $request->string('interface')->toString();
@@ -826,7 +794,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $client->command('/interface/pppoe-server/server/remove', ['.id' => $id]);
             $client->disconnect();
 
@@ -851,7 +819,7 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $result = $client->command('/interface/monitor-traffic', [
                 'interface' => $interface,
                 'once' => '',
@@ -889,20 +857,20 @@ class DashboardController extends Controller
         }
 
         try {
-            $client = new \App\Services\MikrotikApiClient($connection);
+            $client = new MikrotikApiClient($connection);
             $result = $client->command('/system/resource/print');
             $client->disconnect();
 
             $res = $result['data'][0] ?? [];
 
             $totalMem = (int) ($res['total-memory'] ?? 0);
-            $freeMem  = (int) ($res['free-memory'] ?? 0);
+            $freeMem = (int) ($res['free-memory'] ?? 0);
             $totalDisk = (int) ($res['total-hdd-space'] ?? 0);
-            $freeDisk  = (int) ($res['free-hdd-space'] ?? 0);
+            $freeDisk = (int) ($res['free-hdd-space'] ?? 0);
 
-            $ramPercent  = $totalMem > 0 ? ($freeMem / $totalMem) * 100 : null;
+            $ramPercent = $totalMem > 0 ? ($freeMem / $totalMem) * 100 : null;
             $diskPercent = $totalDisk > 0 ? ($freeDisk / $totalDisk) * 100 : null;
-            $cpuLoad     = isset($res['cpu-load']) ? (float) $res['cpu-load'] : null;
+            $cpuLoad = isset($res['cpu-load']) ? (float) $res['cpu-load'] : null;
 
             $version = $res['version'] ?? null;
             $routeros = $version ? 'ROS '.explode(' ', $version)[0] : 'N/A';

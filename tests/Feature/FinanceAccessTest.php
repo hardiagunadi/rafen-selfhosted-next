@@ -30,7 +30,7 @@ it('shows data keuangan menu for administrator and keuangan', function () {
         ->assertSeeText('Data Keuangan');
 });
 
-it('hides informasi layanan card for teknisi and keuangan', function () {
+it('does not show informasi layanan card on the dashboard', function () {
     $tenantAdmin = User::factory()->create([
         'role' => 'administrator',
         'subscription_status' => 'active',
@@ -52,6 +52,11 @@ it('hides informasi layanan card for teknisi and keuangan', function () {
     ]);
 
     $this->actingAs($keuangan)
+        ->get(route('dashboard'))
+        ->assertSuccessful()
+        ->assertDontSeeText('Informasi Layanan');
+
+    $this->actingAs($tenantAdmin)
         ->get(route('dashboard'))
         ->assertSuccessful()
         ->assertDontSeeText('Informasi Layanan');

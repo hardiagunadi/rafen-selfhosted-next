@@ -12,6 +12,14 @@ class TenantSettings extends Model
 
     public const TEMPLATE_ROTATION_SEPARATOR = '---';
 
+    public const SAFE_WA_ANTISPAM_DELAY_MS = 8000;
+
+    public const SAFE_WA_ANTISPAM_MAX_PER_MINUTE = 4;
+
+    public const SAFE_WA_BLAST_DELAY_MIN_MS = 12000;
+
+    public const SAFE_WA_BLAST_DELAY_MAX_MS = 20000;
+
     protected $fillable = [
         'user_id',
         'business_name',
@@ -39,6 +47,15 @@ class TenantSettings extends Model
         'wa_gateway_url',
         'wa_gateway_token',
         'wa_gateway_key',
+        'wa_provider',
+        'wa_cost_strategy',
+        'ycloud_enabled',
+        'ycloud_api_key',
+        'ycloud_webhook_secret',
+        'ycloud_waba_id',
+        'ycloud_phone_number_id',
+        'ycloud_business_number',
+        'ycloud_allow_group_fallback_local',
         'wa_webhook_secret',
         'wa_notify_registration',
         'wa_notify_invoice',
@@ -116,6 +133,8 @@ class TenantSettings extends Model
             'payment_expiry_hours' => 'integer',
             'auto_isolate_unpaid' => 'boolean',
             'grace_period_days' => 'integer',
+            'ycloud_enabled' => 'boolean',
+            'ycloud_allow_group_fallback_local' => 'boolean',
             'wa_notify_registration' => 'boolean',
             'wa_notify_invoice' => 'boolean',
             'wa_notify_payment' => 'boolean',
@@ -266,17 +285,44 @@ class TenantSettings extends Model
 
     public function hasWaConfigured(): bool
     {
-        // Direct gateway config (per-tenant)
+        return $this->hasLocalWaConfigured() || $this->hasYCloudConfigured();
+    }
+
+    public function hasLocalWaConfigured(): bool
+    {
         if (trim((string) ($this->wa_gateway_url ?? '')) !== ''
             && trim((string) ($this->wa_gateway_token ?? '')) !== '') {
             return true;
         }
 
-        // Platform multi-session — URL dan token dari config .env, bukan dari tenant settings
         $platformUrl = trim((string) config('wa.multi_session.public_url', ''));
         $platformToken = trim((string) config('wa.multi_session.auth_token', ''));
 
         return $platformUrl !== '' && $platformToken !== '';
+    }
+
+    public function usesYCloud(): bool
+    {
+        return ($this->wa_provider ?? 'local') === 'ycloud';
+    }
+
+    public function hasYCloudConfigured(): bool
+    {
+        return (bool) ($this->ycloud_enabled ?? false)
+            && trim((string) ($this->ycloud_api_key ?? '')) !== ''
+            && trim((string) ($this->ycloud_phone_number_id ?? '')) !== '';
+    }
+
+    public function getYCloudTemplateName(string $event): string
+    {
+        return match ($event) {
+            'registration' => 'registration_utility',
+            'invoice_created' => 'invoice_created_utility',
+            'invoice_paid' => 'invoice_paid_utility',
+            'on_process' => 'on_process_utility',
+            'voucher_code' => 'voucher_code_utility',
+            default => 'utility_template',
+        };
     }
 
     /**

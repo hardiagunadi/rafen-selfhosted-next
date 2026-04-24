@@ -52,6 +52,14 @@ return [
         'app_secret' => env('META_WHATSAPP_APP_SECRET', ''),
     ],
 
+    'ycloud_whatsapp' => [
+        'base_url' => env('YCLOUD_BASE_URL', 'https://api.ycloud.com/v2'),
+        'api_key' => env('YCLOUD_API_KEY', ''),
+        'phone_number_id' => env('YCLOUD_PHONE_NUMBER_ID', ''),
+        'waba_id' => env('YCLOUD_WABA_ID', ''),
+        'business_number' => env('YCLOUD_BUSINESS_NUMBER', ''),
+    ],
+
     'self_hosted_registry' => [
         'url' => env('SELF_HOSTED_REGISTRY_URL', ''),
         'token' => env('SELF_HOSTED_REGISTRY_TOKEN', ''),

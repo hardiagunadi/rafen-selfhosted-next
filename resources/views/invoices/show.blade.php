@@ -286,40 +286,129 @@
         </div>
     </div>
 </div>
+
+@if((auth()->user()->isSuperAdmin() || auth()->user()->isAdmin() || auth()->user()->role === 'keuangan') && !empty($invoiceWaProviders))
+<div class="modal fade" id="invoiceWaModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fab fa-whatsapp text-success mr-1"></i> Kirim Invoice ke WhatsApp</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <form id="invoice-wa-form">
+                <div class="modal-body">
+                    <div class="alert alert-light border">
+                        <div><strong>Invoice:</strong> {{ $invoice->invoice_number }}</div>
+                        <div><strong>Pelanggan:</strong> {{ $invoice->customer_name }}</div>
+                        <div><strong>Status:</strong> {{ $invoice->isPaid() ? 'Lunas' : 'Belum Dibayar' }}</div>
+                    </div>
+                    <div class="form-group mb-0">
+                        <label for="invoice-wa-provider">Provider WhatsApp</label>
+                        <select id="invoice-wa-provider" name="provider" class="form-control">
+                            @foreach($invoiceWaProviders as $providerOption)
+                            <option value="{{ $providerOption['value'] }}" {{ $defaultInvoiceWaProvider === $providerOption['value'] ? 'selected' : '' }}>
+                                {{ $providerOption['label'] }}
+                            </option>
+                            @endforeach
+                        </select>
+                        <small id="invoice-wa-provider-hint" class="text-muted d-block mt-1"></small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-success" id="invoice-wa-submit">
+                        <i class="fab fa-whatsapp"></i> Kirim
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+@endif
 @endsection
 
 @push('scripts')
 <script>
-document.querySelectorAll('.btn-send-wa').forEach(function(btn) {
-    var originalHtml = btn.innerHTML;
-    btn.addEventListener('click', function() {
-        var self = this;
-        self.disabled = true;
-        self.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mengirim...';
+(function () {
+    var providerOptions = @json($invoiceWaProviders ?? []);
+    var providerSelect = document.getElementById('invoice-wa-provider');
+    var providerHint = document.getElementById('invoice-wa-provider-hint');
+    var submitButton = document.getElementById('invoice-wa-submit');
+    var invoiceWaForm = document.getElementById('invoice-wa-form');
+
+    function renderProviderHint() {
+        if (!providerSelect || !providerHint) {
+            return;
+        }
+
+        var current = providerOptions.find(function (option) {
+            return option.value === providerSelect.value;
+        });
+
+        providerHint.textContent = current && current.hint ? current.hint : '';
+    }
+
+    document.querySelectorAll('.btn-send-wa').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            if (invoiceWaForm) {
+                renderProviderHint();
+                $('#invoiceWaModal').modal('show');
+
+                return;
+            }
+
+            window.AppAjax.showToast('Provider WhatsApp belum tersedia.', 'warning');
+        });
+    });
+
+    if (providerSelect) {
+        providerSelect.addEventListener('change', renderProviderHint);
+        renderProviderHint();
+    }
+
+    if (!invoiceWaForm || !submitButton) {
+        return;
+    }
+
+    invoiceWaForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        var originalHtml = submitButton.innerHTML;
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mengirim...';
 
         fetch('{{ route('invoices.send-wa', $invoice) }}', {
             method: 'POST',
             headers: {
                 'X-CSRF-TOKEN': '{{ csrf_token() }}',
                 'Accept': 'application/json',
+                'Content-Type': 'application/json',
             },
+            body: JSON.stringify({
+                provider: providerSelect ? providerSelect.value : '',
+            }),
         })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
             if (data.status) {
+                $('#invoiceWaModal').modal('hide');
                 window.AppAjax.showToast(data.status, 'success');
-            } else {
-                window.AppAjax.showToast(data.error || 'Gagal mengirim WA.', 'danger');
+
+                return;
             }
+
+            window.AppAjax.showToast(data.error || 'Gagal mengirim WA.', 'danger');
         })
-        .catch(function() {
+        .catch(function () {
             window.AppAjax.showToast('Terjadi kesalahan saat mengirim.', 'danger');
         })
-        .finally(function() {
-            self.disabled = false;
-            self.innerHTML = originalHtml;
+        .finally(function () {
+            submitButton.disabled = false;
+            submitButton.innerHTML = originalHtml;
         });
     });
-});
+})();
 </script>
 @endpush

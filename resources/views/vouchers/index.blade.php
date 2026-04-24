@@ -79,9 +79,83 @@
         </form>
     </div>
 
+    <div class="modal fade" id="sendVoucherWaModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="fab fa-whatsapp text-success mr-1"></i> Kirim Voucher ke WhatsApp</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <form id="send-voucher-wa-form">
+                    <div class="modal-body">
+                        <div class="alert alert-light border">
+                            <div><strong>Kode:</strong> <span id="voucher-wa-code">-</span></div>
+                            <div><strong>Profil:</strong> <span id="voucher-wa-profile">-</span></div>
+                        </div>
+                        <div class="form-group">
+                            <label for="voucher-wa-provider">Provider WhatsApp</label>
+                            <select id="voucher-wa-provider" name="provider" class="form-control"></select>
+                            <small id="voucher-wa-provider-hint" class="text-muted d-block mt-1"></small>
+                        </div>
+                        <div class="form-group mb-0">
+                            <label for="voucher-wa-phone">Nomor WhatsApp Tujuan</label>
+                            <input type="text" id="voucher-wa-phone" name="phone" class="form-control" placeholder="Contoh: 081234567890" required>
+                            <small class="text-muted">Nomor akan dinormalisasi otomatis ke format WhatsApp Indonesia.</small>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Batal</button>
+                        <button type="submit" class="btn btn-success" id="send-voucher-wa-submit">
+                            <i class="fab fa-whatsapp"></i> Kirim
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <script>
     (function () {
         var dtTable = null;
+        var activeSendWaUrl = '';
+        var activeProviderOptions = [];
+
+        function setVoucherProviderOptions(options, defaultProvider) {
+            var select = document.getElementById('voucher-wa-provider');
+            var hint = document.getElementById('voucher-wa-provider-hint');
+
+            if (!select) return;
+
+            select.innerHTML = '';
+            activeProviderOptions = Array.isArray(options) ? options : [];
+
+            activeProviderOptions.forEach(function (option) {
+                var el = document.createElement('option');
+                el.value = option.value || '';
+                el.textContent = option.label || option.value || 'Provider';
+                if ((option.value || '') === defaultProvider) {
+                    el.selected = true;
+                }
+                select.appendChild(el);
+            });
+
+            if (!select.value && activeProviderOptions.length > 0) {
+                select.value = activeProviderOptions[0].value || '';
+            }
+
+            function renderHint() {
+                var current = activeProviderOptions.find(function (option) {
+                    return option.value === select.value;
+                });
+
+                hint.textContent = current && current.hint ? current.hint : '';
+            }
+
+            select.onchange = renderHint;
+            renderHint();
+        }
 
         function init() {
             if (!document.getElementById('vouchers-table')) return;
@@ -136,6 +210,67 @@
                     form.appendChild(inp);
                 });
                 form.submit();
+            });
+
+            $(document).off('click.voucherWa', '.btn-send-voucher-wa').on('click.voucherWa', '.btn-send-voucher-wa', function () {
+                activeSendWaUrl = this.dataset.sendWaUrl || '';
+                var providerOptions = [];
+                try {
+                    providerOptions = JSON.parse(this.dataset.providerOptions || '[]');
+                } catch (error) {
+                    providerOptions = [];
+                }
+
+                document.getElementById('voucher-wa-code').textContent = this.dataset.voucherCode || '-';
+                document.getElementById('voucher-wa-profile').textContent = this.dataset.voucherProfile || '-';
+                document.getElementById('voucher-wa-phone').value = '';
+                setVoucherProviderOptions(providerOptions, this.dataset.defaultProvider || '');
+                $('#sendVoucherWaModal').modal('show');
+            });
+
+            $('#send-voucher-wa-form').off('submit.voucherWa').on('submit.voucherWa', function (e) {
+                e.preventDefault();
+
+                var phoneInput = document.getElementById('voucher-wa-phone');
+                var submitButton = document.getElementById('send-voucher-wa-submit');
+                var originalHtml = submitButton.innerHTML;
+                var phone = (phoneInput.value || '').trim();
+                var provider = (document.getElementById('voucher-wa-provider').value || '').trim();
+
+                if (!activeSendWaUrl || !phone) {
+                    window.AppAjax.showToast('Nomor WhatsApp tujuan wajib diisi.', 'warning');
+                    return;
+                }
+
+                submitButton.disabled = true;
+                submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Mengirim...';
+
+                fetch(activeSendWaUrl, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRF-TOKEN': '{{ csrf_token() }}',
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ phone: phone, provider: provider }),
+                })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data.status) {
+                        $('#sendVoucherWaModal').modal('hide');
+                        window.AppAjax.showToast(data.status, 'success');
+                        return;
+                    }
+
+                    window.AppAjax.showToast(data.error || 'Gagal mengirim voucher ke WhatsApp.', 'danger');
+                })
+                .catch(function () {
+                    window.AppAjax.showToast('Terjadi kesalahan saat mengirim voucher.', 'danger');
+                })
+                .finally(function () {
+                    submitButton.disabled = false;
+                    submitButton.innerHTML = originalHtml;
+                });
             });
         }
         document.addEventListener('DOMContentLoaded', init);

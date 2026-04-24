@@ -16,9 +16,6 @@
         $invoiceStateClass = $stats['invoice_count'] > 0 ? 'badge-warning' : 'badge-success';
         $invoiceStateLabel = $stats['invoice_count'] > 0 ? 'Perlu tindak lanjut' : 'Tagihan aman';
         $hideHeroCard = auth()->user()->role === 'teknisi';
-        $showServiceInfoPanel = ! in_array(auth()->user()->role, ['teknisi', 'keuangan'], true);
-        $networkPerformanceColumnClass = $hideHeroCard || ! $showServiceInfoPanel ? 'col-12' : 'col-xl-8';
-        $networkPerformanceLayout = $networkPerformanceColumnClass === 'col-12' ? 'full' : 'split';
     @endphp
 
     <style>
@@ -352,41 +349,6 @@
             white-space: nowrap;
         }
 
-        .service-item {
-            border: 1px solid #e6edf5;
-            border-radius: 12px;
-            background: #fcfdff;
-            padding: 12px;
-            margin-bottom: 10px;
-        }
-
-        .service-item:last-child {
-            margin-bottom: 0;
-        }
-
-        .service-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 8px;
-            margin-bottom: 8px;
-        }
-
-        .service-label {
-            margin: 0;
-            color: #111827;
-            font-size: 0.8rem;
-            font-weight: 700;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-        }
-
-        .service-status {
-            margin: 0;
-            color: var(--dash-text-soft);
-            font-size: 0.86rem;
-        }
-
         .income-modal .modal-content {
             border-radius: 14px;
             border: 1px solid #dbe4f1;
@@ -563,7 +525,7 @@
         </div>
 
         <div class="row">
-            <div class="{{ $networkPerformanceColumnClass }} mb-3" data-network-performance-layout="{{ $networkPerformanceLayout }}">
+            <div class="col-12 mb-3">
                 <div class="card dashboard-panel">
                     <div class="card-header">
                         <h5 class="panel-title">Performa Jaringan</h5>
@@ -635,37 +597,6 @@
                     </div>
                 </div>
             </div>
-
-            @if($showServiceInfoPanel)
-                <div class="col-xl-4 mb-3">
-                    <div class="card dashboard-panel">
-                        <div class="card-header">
-                            <h5 class="panel-title">Informasi Layanan</h5>
-                            <p class="panel-subtitle">Kontrol cepat layanan inti sistem.</p>
-                        </div>
-                        <div class="card-body pt-2">
-                            @foreach($serviceInfo as $service)
-                                <div class="service-item">
-                                    <div class="service-header">
-                                        <p class="service-label">{{ $service['label'] }}</p>
-                                        <span class="badge badge-{{ $service['color'] }}">{{ $service['status'] }}</span>
-                                    </div>
-                                    <p class="service-status">{{ $service['status'] }}</p>
-                                    <div class="text-right mt-2">
-                                        @if(!empty($service['action_route']))
-                                            <button type="button" class="btn btn-sm btn-outline-secondary service-action-btn" data-url="{{ $service['action_route'] }}">
-                                                {{ $service['action'] }}
-                                            </button>
-                                        @elseif($service['action'])
-                                            <button type="button" class="btn btn-sm btn-outline-secondary" disabled>{{ $service['action'] }}</button>
-                                        @endif
-                                    </div>
-                                </div>
-                            @endforeach
-                        </div>
-                    </div>
-                </div>
-            @endif
         </div>
     </div>
 
@@ -741,59 +672,8 @@
                 }, 1000);
             }
 
-            function initServiceActions() {
-                var tokenMeta = document.querySelector('meta[name="csrf-token"]');
-                var csrfToken = tokenMeta ? tokenMeta.getAttribute('content') : '';
-
-                document.querySelectorAll('.service-action-btn').forEach(function (button) {
-                    button.addEventListener('click', function () {
-                        var url = this.dataset.url;
-                        if (!url) {
-                            return;
-                        }
-
-                        var trigger = this;
-                        var originalHtml = trigger.innerHTML;
-                        trigger.disabled = true;
-                        trigger.innerHTML = '<span class="spinner-border spinner-border-sm mr-1" role="status" aria-hidden="true"></span>Processing...';
-
-                        fetch(url, {
-                            method: 'POST',
-                            headers: {
-                                'X-CSRF-TOKEN': csrfToken,
-                                Accept: 'application/json',
-                            },
-                        })
-                            .then(function (response) {
-                                return response.json().then(function (payload) {
-                                    return {
-                                        ok: response.ok,
-                                        data: payload,
-                                    };
-                                });
-                            })
-                            .then(function (result) {
-                                if (result.ok && result.data && result.data.status === 'ok') {
-                                    trigger.classList.remove('btn-outline-secondary');
-                                    trigger.classList.add('btn-success');
-                                    trigger.innerHTML = 'Reloaded';
-                                    return;
-                                }
-
-                                throw new Error((result.data && result.data.message) || 'Gagal memproses permintaan.');
-                            })
-                            .catch(function (error) {
-                                alert(error && error.message ? error.message : 'Gagal memproses permintaan.');
-                                trigger.disabled = false;
-                                trigger.innerHTML = originalHtml;
-                            });
-                    });
-                });
-            }
-
             document.addEventListener('DOMContentLoaded', function () {
                 initClock();
-                initServiceActions();
             });
         })();
     </script>

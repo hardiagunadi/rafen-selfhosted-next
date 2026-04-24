@@ -2,16 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\SendInvoiceWaRequest;
 use App\Jobs\ProcessPaidInvoiceSideEffectsJob;
 use App\Models\BankAccount;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PppUser;
 use App\Models\TenantSettings;
+use App\Models\WaBlastLog;
 use App\Services\IsolirSynchronizer;
 use App\Services\RadiusReplySynchronizer;
 use App\Services\WaGatewayService;
 use App\Services\WaNotificationService;
+use App\Services\YCloudWhatsAppService;
 use App\Traits\LogsActivity;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -321,8 +324,10 @@ class InvoiceController extends Controller
             ->where('status', 'pending')
             ->latest()
             ->first();
+        $invoiceWaProviders = $this->availableInvoiceWaProviders($settings);
+        $defaultInvoiceWaProvider = $settings?->usesYCloud() ? 'ycloud' : 'local';
 
-        return view('invoices.show', compact('invoice', 'bankAccounts', 'settings', 'pendingPayment'));
+        return view('invoices.show', compact('invoice', 'bankAccounts', 'settings', 'pendingPayment', 'invoiceWaProviders', 'defaultInvoiceWaProvider'));
     }
 
     public function print(Invoice $invoice): View
@@ -602,9 +607,9 @@ class InvoiceController extends Controller
         return redirect()->back()->with('status', 'Invoice dihapus.');
     }
 
-    public function sendWa(Invoice $invoice): JsonResponse|RedirectResponse
+    public function sendWa(SendInvoiceWaRequest $request, Invoice $invoice): JsonResponse|RedirectResponse
     {
-        $user = auth()->user();
+        $user = $request->user();
 
         $canSendWa = $user->isSuperAdmin() || $user->isAdmin() || in_array($user->role, ['keuangan', 'noc', 'it_support', 'cs']);
         if (! $canSendWa) {
@@ -616,13 +621,18 @@ class InvoiceController extends Controller
         }
 
         $settings = TenantSettings::getOrCreate((int) $invoice->owner_id);
+        $selectedProvider = $this->resolveInvoiceWaProvider(
+            $settings,
+            (string) ($request->validated('provider') ?? '')
+        );
+        $providerError = $this->validateInvoiceWaProviderAvailability($settings, $selectedProvider);
 
-        if (! $settings->hasWaConfigured()) {
-            if (request()->wantsJson()) {
-                return response()->json(['error' => 'WhatsApp Gateway belum dikonfigurasi.'], 422);
+        if ($providerError !== null) {
+            if ($request->wantsJson()) {
+                return response()->json(['error' => $providerError], 422);
             }
 
-            return redirect()->back()->with('error', 'WhatsApp Gateway belum dikonfigurasi.');
+            return redirect()->back()->with('error', $providerError);
         }
 
         $invoice->load('pppUser');
@@ -631,21 +641,11 @@ class InvoiceController extends Controller
         $phone = $pppUser->nomor_hp ?? '';
 
         if (! $pppUser || empty(trim($phone))) {
-            if (request()->wantsJson()) {
+            if ($request->wantsJson()) {
                 return response()->json(['error' => 'Pelanggan tidak ditemukan atau nomor HP tidak tersedia.'], 422);
             }
 
             return redirect()->back()->with('error', 'Pelanggan tidak ditemukan atau nomor HP tidak tersedia.');
-        }
-
-        // Kirim langsung (bypass toggle notifikasi otomatis — ini pengiriman manual admin)
-        $waService = WaGatewayService::forTenant($settings);
-        if (! $waService) {
-            if (request()->wantsJson()) {
-                return response()->json(['error' => 'WA Gateway tidak dapat diinisialisasi.'], 422);
-            }
-
-            return redirect()->back()->with('error', 'WA Gateway tidak dapat diinisialisasi.');
         }
 
         if ($invoice->isPaid()) {
@@ -669,6 +669,21 @@ class InvoiceController extends Controller
                 ],
                 $template
             );
+
+            $ycloudTemplateName = $settings->getYCloudTemplateName('invoice_paid');
+            $ycloudComponents = [[
+                'type' => 'body',
+                'parameters' => [
+                    ['type' => 'text', 'text' => $invoice->customer_name ?? 'Pelanggan'],
+                    ['type' => 'text', 'text' => $invoice->invoice_number],
+                    ['type' => 'text', 'text' => $customerId],
+                    ['type' => 'text', 'text' => $profileName],
+                    ['type' => 'text', 'text' => $serviceType],
+                    ['type' => 'text', 'text' => 'Rp '.number_format($invoice->total, 0, ',', '.')],
+                    ['type' => 'text', 'text' => $paidAt],
+                    ['type' => 'text', 'text' => $csNumber],
+                ],
+            ]];
         } else {
             $template = $settings->getTemplate('invoice');
             $customerId = $invoice->customer_id ?? ($pppUser->customer_id ?? '-');
@@ -703,26 +718,179 @@ class InvoiceController extends Controller
                 ],
                 $template
             );
+
+            $ycloudTemplateName = $settings->getYCloudTemplateName('invoice_created');
+            $ycloudComponents = [[
+                'type' => 'body',
+                'parameters' => [
+                    ['type' => 'text', 'text' => $invoice->customer_name ?? 'Pelanggan'],
+                    ['type' => 'text', 'text' => $invoice->invoice_number],
+                    ['type' => 'text', 'text' => $customerId],
+                    ['type' => 'text', 'text' => $profileName],
+                    ['type' => 'text', 'text' => $serviceType],
+                    ['type' => 'text', 'text' => 'Rp '.number_format($invoice->total, 0, ',', '.')],
+                    ['type' => 'text', 'text' => $paymentLink],
+                ],
+            ]];
+
+            if (! empty($invoice->payment_token)) {
+                $ycloudComponents[] = [
+                    'type' => 'button',
+                    'sub_type' => 'url',
+                    'index' => '0',
+                    'parameters' => [[
+                        'type' => 'text',
+                        'text' => $invoice->payment_token,
+                    ]],
+                ];
+            }
         }
 
         $context = [
             'event' => $invoice->isPaid() ? 'invoice_paid' : 'invoice_created',
+            'provider' => $selectedProvider,
             'invoice_id' => $invoice->id,
             'invoice_number' => $invoice->invoice_number,
             'user_id' => $pppUser->id,
             'username' => $pppUser->username,
             'name' => $invoice->customer_name ?? $pppUser->customer_name ?? null,
+            'message' => $message,
         ];
 
-        $waService->sendMessage($phone, $message, $context);
+        if ($selectedProvider === 'ycloud') {
+            $ycloudService = YCloudWhatsAppService::forTenant($settings);
+            if (! $ycloudService) {
+                if ($request->wantsJson()) {
+                    return response()->json(['error' => 'Konfigurasi YCloud tenant belum lengkap.'], 422);
+                }
+
+                return redirect()->back()->with('error', 'Konfigurasi YCloud tenant belum lengkap.');
+            }
+
+            $result = $ycloudService->sendTemplateMessage($phone, $ycloudTemplateName, 'id', $ycloudComponents);
+            $this->writeYCloudInvoiceLog($invoice, $pppUser, $phone, $message, $result, $ycloudTemplateName);
+
+            if (! $result['ok']) {
+                if ($request->wantsJson()) {
+                    return response()->json(['error' => 'Notifikasi WhatsApp gagal dikirim ke YCloud. '.($result['message'] ?: '')], 422);
+                }
+
+                return redirect()->back()->with('error', 'Notifikasi WhatsApp gagal dikirim ke YCloud. '.($result['message'] ?: ''));
+            }
+        } else {
+            $waService = WaGatewayService::forTenant($settings);
+            if (! $waService) {
+                if ($request->wantsJson()) {
+                    return response()->json(['error' => 'WA Gateway lokal tidak dapat diinisialisasi.'], 422);
+                }
+
+                return redirect()->back()->with('error', 'WA Gateway lokal tidak dapat diinisialisasi.');
+            }
+
+            $isSent = $waService->sendMessage($phone, $message, $context);
+
+            if (! $isSent) {
+                if ($request->wantsJson()) {
+                    return response()->json(['error' => 'Notifikasi WhatsApp gagal dikirim lewat gateway lokal.'], 422);
+                }
+
+                return redirect()->back()->with('error', 'Notifikasi WhatsApp gagal dikirim lewat gateway lokal.');
+            }
+        }
 
         $this->logActivity('send_wa', 'Invoice', $invoice->id, $invoice->invoice_number, (int) $invoice->owner_id);
 
-        if (request()->wantsJson()) {
+        if ($request->wantsJson()) {
             return response()->json(['status' => 'Notifikasi WhatsApp berhasil dikirim ke '.$phone]);
         }
 
         return redirect()->back()->with('status', 'Notifikasi WhatsApp berhasil dikirim ke '.$phone);
+    }
+
+    /**
+     * @return array<int, array{value: string, label: string, hint: string}>
+     */
+    private function availableInvoiceWaProviders(?TenantSettings $settings): array
+    {
+        if (! $settings instanceof TenantSettings) {
+            return [];
+        }
+
+        $providers = [];
+
+        if ($settings->hasLocalWaConfigured() && WaGatewayService::forTenant($settings)) {
+            $providers[] = [
+                'value' => 'local',
+                'label' => 'Gateway Lokal',
+                'hint' => 'Kirim melalui device / session WhatsApp lokal.',
+            ];
+        }
+
+        if ($settings->hasYCloudConfigured()) {
+            $providers[] = [
+                'value' => 'ycloud',
+                'label' => 'YCloud',
+                'hint' => 'Kirim melalui WhatsApp API YCloud.',
+            ];
+        }
+
+        return $providers;
+    }
+
+    private function resolveInvoiceWaProvider(TenantSettings $settings, string $requestedProvider): string
+    {
+        return match ($requestedProvider) {
+            'local' => 'local',
+            'ycloud' => 'ycloud',
+            default => $settings->usesYCloud() ? 'ycloud' : 'local',
+        };
+    }
+
+    private function validateInvoiceWaProviderAvailability(TenantSettings $settings, string $provider): ?string
+    {
+        if ($provider === 'ycloud') {
+            return $settings->hasYCloudConfigured()
+                ? null
+                : 'YCloud belum dikonfigurasi lengkap di Pengaturan WhatsApp.';
+        }
+
+        return WaGatewayService::forTenant($settings)
+            ? null
+            : 'WA Gateway lokal belum dikonfigurasi di Pengaturan WhatsApp.';
+    }
+
+    /**
+     * @param  array{ok: bool, message: string, recipient: string, provider_message_id: string|null, delivery_status: string|null, pricing_metadata: array<mixed>}  $result
+     */
+    private function writeYCloudInvoiceLog(Invoice $invoice, PppUser $pppUser, string $phone, string $message, array $result, string $templateName): void
+    {
+        $actor = auth()->user();
+        $service = new YCloudWhatsAppService;
+        $status = $result['ok'] ? 'sent' : 'failed';
+
+        WaBlastLog::create([
+            'owner_id' => $invoice->owner_id,
+            'sent_by_id' => $actor?->id,
+            'sent_by_name' => $actor?->name,
+            'event' => $invoice->isPaid() ? 'invoice_paid' : 'invoice_created',
+            'provider' => 'ycloud',
+            'phone' => $phone,
+            'phone_normalized' => $service->normalizeRecipient($phone),
+            'status' => $status,
+            'reason' => $status === 'failed' ? ($result['message'] ?? 'Gagal mengirim ke YCloud.') : null,
+            'invoice_number' => $invoice->invoice_number,
+            'invoice_id' => $invoice->id,
+            'user_id' => $pppUser->id,
+            'username' => $pppUser->username,
+            'customer_name' => $invoice->customer_name ?? $pppUser->customer_name,
+            'ref_id' => $result['provider_message_id'] ?? null,
+            'provider_message_id' => $result['provider_message_id'] ?? null,
+            'delivery_status' => $result['delivery_status'] ?? null,
+            'pricing_metadata' => $result['pricing_metadata'] ?? [],
+            'template_name' => $templateName,
+            'message' => $message,
+            'created_at' => now(),
+        ]);
     }
 
     /**

@@ -28,6 +28,9 @@
     $heartbeatHealthClass = ($heartbeatSummary['is_stale'] ?? false)
         ? 'danger'
         : (($heartbeatSummary['is_configured'] ?? false) ? 'success' : 'warning');
+    $syncAttentionCount = (($snapshot['update_available'] ?? false) ? 1 : 0)
+        + (($snapshot['last_apply_status'] ?? null) === 'failed' ? 1 : 0)
+        + (($heartbeatSummary['is_stale'] ?? false) ? 1 : 0);
 @endphp
 <div class="container-fluid">
     <div class="row mb-3 align-items-center">
@@ -83,6 +86,41 @@
         <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
     </div>
     @endif
+
+    <div class="row mb-3">
+        <div class="col-lg col-md-4 col-sm-6 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="h3 mb-1 text-warning">{{ ($snapshot['update_available'] ?? false) ? 1 : 0 }}</div>
+                    <div class="text-muted">Update Tersedia</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg col-md-4 col-sm-6 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="h3 mb-1 text-danger">{{ ($snapshot['last_apply_status'] ?? null) === 'failed' ? 1 : 0 }}</div>
+                    <div class="text-muted">Apply Gagal</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg col-md-4 col-sm-6 mb-3">
+            <div class="card h-100">
+                <div class="card-body text-center">
+                    <div class="h3 mb-1 text-secondary">{{ ($heartbeatSummary['is_stale'] ?? false) ? 1 : 0 }}</div>
+                    <div class="text-muted">Heartbeat Stale</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-lg col-md-6 col-sm-6 mb-3 mb-lg-0">
+            <div class="card h-100 border-{{ $syncAttentionCount > 0 ? 'warning' : 'success' }}">
+                <div class="card-body text-center">
+                    <div class="h3 mb-1 text-{{ $syncAttentionCount > 0 ? 'warning' : 'success' }}">{{ $syncAttentionCount }}</div>
+                    <div class="text-muted">Perlu Perhatian</div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <div class="row">
         <div class="col-lg-6">
@@ -223,7 +261,7 @@
                         </span>
                         <span class="badge badge-{{ $heartbeatStatusClass }} px-3 py-2">Status: {{ strtoupper((string) $heartbeatStatus) }}</span>
                         <span class="badge badge-{{ $heartbeatHealthClass }} px-3 py-2">
-                            {{ ($heartbeatSummary['is_stale'] ?? false) ? 'Heartbeat Stale' : 'Heartbeat Healthy' }}
+                            {{ ($heartbeatSummary['is_stale'] ?? false) ? 'Perlu Sinkronisasi' : 'Sinkronisasi Sehat' }}
                         </span>
                     </div>
 
@@ -231,6 +269,11 @@
                     <div class="alert alert-danger">
                         <div class="font-weight-bold mb-1">Perlu perhatian</div>
                         {{ $heartbeatSummary['stale_reason'] ?? 'Heartbeat ke SaaS sudah stale.' }}
+                    </div>
+                    @elseif($heartbeatSummary['is_configured'] ?? false)
+                    <div class="alert alert-success">
+                        <div class="font-weight-bold mb-1">Sinkronisasi sehat</div>
+                        Status heartbeat terakhir masih dalam ambang sehat dan belum melewati batas stale.
                     </div>
                     @endif
 

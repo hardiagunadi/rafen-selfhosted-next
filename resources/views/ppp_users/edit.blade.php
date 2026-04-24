@@ -83,6 +83,9 @@
             </div>
         </div>
         <div class="mf-header-actions">
+            <a href="{{ route('ppp-users.nota-layanan', $pppUser) }}" target="_blank" class="mf-btn-outline">
+                <i class="fas fa-receipt mr-1"></i> Nota Layanan
+            </a>
             <a href="{{ route('ppp-users.nota-aktivasi', $pppUser) }}" target="_blank" class="mf-btn-outline">
                 <i class="fas fa-print mr-1"></i> Nota Aktivasi
             </a>

@@ -13,8 +13,14 @@ class WaChatMessage extends Model
     protected $fillable = [
         'conversation_id',
         'owner_id',
+        'provider',
         'direction',
         'message',
+        'message_type',
+        'pricing_category',
+        'is_free_window_send',
+        'delivery_status',
+        'pricing_metadata',
         'media_type',
         'media_path',
         'media_mime',
@@ -22,6 +28,7 @@ class WaChatMessage extends Model
         'sender_name',
         'sender_id',
         'wa_message_id',
+        'provider_message_id',
         'created_at',
     ];
 
@@ -29,6 +36,8 @@ class WaChatMessage extends Model
     {
         return [
             'created_at' => 'datetime',
+            'is_free_window_send' => 'boolean',
+            'pricing_metadata' => 'array',
         ];
     }
 
@@ -49,6 +58,7 @@ class WaChatMessage extends Model
             if ($impersonatingId) {
                 return $query->where('owner_id', $impersonatingId);
             }
+
             return $query;
         }
 

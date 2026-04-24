@@ -5,19 +5,20 @@ namespace App\Http\Controllers;
 use App\Models\HotspotUser;
 use App\Models\Invoice;
 use App\Models\Outage;
-use App\Models\OutageUpdate;
 use App\Models\PppUser;
 use App\Models\RadiusAccount;
 use App\Models\TenantSettings;
-use App\Models\WaConversation;
+use App\Models\User;
 use App\Models\WaChatMessage;
+use App\Models\WaConversation;
 use App\Models\WaConversationState;
 use App\Models\WaKeywordRule;
-use App\Models\User;
 use App\Models\WaMultiSessionDevice;
 use App\Models\WaTicket;
 use App\Models\WaWebhookLog;
+use App\Services\PushNotificationService;
 use App\Services\WaGatewayService;
+use App\Services\YCloudWhatsAppService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -206,23 +207,23 @@ class WaWebhookController extends Controller
         $statusStr = is_scalar($payload['status'] ?? null) ? (string) ($payload['status'] ?? null) : null;
 
         WaWebhookLog::create([
-            'owner_id'   => $ownerId,
+            'owner_id' => $ownerId,
             'event_type' => 'session',
             'session_id' => $sessionId,
-            'status'     => $statusStr,
-            'payload'    => $payload,
+            'status' => $statusStr,
+            'payload' => $payload,
         ]);
 
         // Update last_status & last_seen_at di device record
         if ($sessionId !== null && $statusStr !== null) {
             WaMultiSessionDevice::where('session_id', $sessionId)->update([
-                'last_status'  => $statusStr,
+                'last_status' => $statusStr,
                 'last_seen_at' => now(),
             ]);
 
             // Kirim alert ke tenant admin saat sesi disconnect (rate-limit 60 menit/device)
             if ($statusStr === 'disconnected') {
-                $cacheKey = 'wa_disconnect_alert_' . md5($sessionId);
+                $cacheKey = 'wa_disconnect_alert_'.md5($sessionId);
                 if (! Cache::has($cacheKey)) {
                     Cache::put($cacheKey, true, now()->addMinutes(60));
                     $this->sendSessionDisconnectAlert($sessionId, $ownerId);
@@ -243,7 +244,7 @@ class WaWebhookController extends Controller
                 return;
             }
 
-            $settings = \App\Models\TenantSettings::where('user_id', $ownerId)->first();
+            $settings = TenantSettings::where('user_id', $ownerId)->first();
             if (! $settings) {
                 return;
             }
@@ -261,7 +262,7 @@ class WaWebhookController extends Controller
             $service = WaGatewayService::forTenant($settings);
             $service->setSessionId($otherDevice->session_id);
 
-            $adminUser = \App\Models\User::find($ownerId);
+            $adminUser = User::find($ownerId);
             if (! $adminUser || empty(trim((string) ($adminUser->no_hp ?? '')))) {
                 return;
             }
@@ -270,13 +271,13 @@ class WaWebhookController extends Controller
             $message = "⚠️ *WA Gateway Alert*\n\nDevice *{$deviceName}* (sesi: {$sessionId}) terputus dari WhatsApp.\n\nSegera cek dan scan ulang QR di halaman Pengaturan > WA Gateway.";
 
             $service->sendMessage($adminUser->no_hp, $message, [
-                'event'   => 'system_alert',
+                'event' => 'system_alert',
                 'session' => $otherDevice->session_id,
             ]);
         } catch (\Throwable $e) {
             Log::warning('WA Webhook: gagal kirim alert disconnect', [
                 'session_id' => $sessionId,
-                'error'      => $e->getMessage(),
+                'error' => $e->getMessage(),
             ]);
         }
     }
@@ -412,7 +413,7 @@ class WaWebhookController extends Controller
         return $value !== '' ? $value : null;
     }
 
-    protected function sendConversationalReply(array $payload, ?int $ownerId, string $eventType): void
+    public function sendConversationalReply(array $payload, ?int $ownerId, string $eventType): void
     {
         if ($eventType !== 'message' || $ownerId === null) {
             return;
@@ -445,14 +446,12 @@ class WaWebhookController extends Controller
             return;
         }
 
-        $service = WaGatewayService::forTenant($settings);
-        if (! $service) {
-            return;
-        }
+        $provider = $this->resolveConversationProvider($settings, $payload);
 
         // Cek apakah bot di-pause (handoff ke CS)
         $conversation = WaConversation::query()
             ->where('owner_id', $ownerId)
+            ->where('provider', $provider)
             ->where('contact_phone', $sender)
             ->first();
 
@@ -464,7 +463,7 @@ class WaWebhookController extends Controller
 
         // Cek conversation state (multi-step flow) — prioritas tertinggi
         if ($conversation) {
-            $stateReply = $this->checkConversationState($ownerId, $conversation, $payload, $incomingMessage, $customerContext, $settings, $service, $sender);
+            $stateReply = $this->checkConversationState($ownerId, $conversation, $payload, $incomingMessage, $customerContext, $settings, $sender, $provider);
             if ($stateReply !== null) {
                 return;
             }
@@ -473,10 +472,11 @@ class WaWebhookController extends Controller
         // Cek keyword rules kustom — prioritas kedua
         $keywordReply = $this->checkKeywordRules($ownerId, $incomingMessage);
         if ($keywordReply !== null) {
-            $service->sendMessage($sender, $keywordReply, [
+            $this->sendAutoReplyMessage($settings, $provider, $sender, $keywordReply, [
                 'event' => 'auto_reply_outbound',
                 'intent' => 'keyword_rule',
             ]);
+
             return;
         }
 
@@ -491,6 +491,7 @@ class WaWebhookController extends Controller
         if ($intent === 'request_human') {
             $conv = $conversation ?? WaConversation::query()
                 ->where('owner_id', $ownerId)
+                ->where('provider', $provider)
                 ->where('contact_phone', $sender)
                 ->first();
 
@@ -506,20 +507,21 @@ class WaWebhookController extends Controller
         if (in_array($intent, ['confirm_payment', 'technician_schedule', 'check_portal'], true)) {
             $conv = $conversation ?? WaConversation::query()
                 ->where('owner_id', $ownerId)
+                ->where('provider', $provider)
                 ->where('contact_phone', $sender)
                 ->first();
 
             if ($conv) {
                 $flow = match ($intent) {
-                    'confirm_payment'   => 'konfirmasi_bayar',
+                    'confirm_payment' => 'konfirmasi_bayar',
                     'technician_schedule' => 'jadwal_teknisi',
-                    'check_portal'      => 'cek_kredensial',
+                    'check_portal' => 'cek_kredensial',
                 };
                 $this->startFlow($flow, $conv, $ownerId);
             }
         }
 
-        $service->sendMessage($sender, $replyMessage, [
+        $this->sendAutoReplyMessage($settings, $provider, $sender, $replyMessage, [
             'event' => 'auto_reply_outbound',
             'name' => $customerContext['name'] ?? null,
             'customer_id' => $customerContext['customer_id'] ?? null,
@@ -603,8 +605,7 @@ class WaWebhookController extends Controller
                     if ($pppUser->odp_id) {
                         $activeOutage = Outage::where('owner_id', $ownerId)
                             ->whereIn('status', [Outage::STATUS_OPEN, Outage::STATUS_IN_PROGRESS])
-                            ->whereHas('affectedAreas', fn ($q) =>
-                                $q->where('area_type', 'odp')->where('odp_id', $pppUser->odp_id)
+                            ->whereHas('affectedAreas', fn ($q) => $q->where('area_type', 'odp')->where('odp_id', $pppUser->odp_id)
                             )
                             ->latest('started_at')
                             ->first();
@@ -612,9 +613,8 @@ class WaWebhookController extends Controller
                     if (! $activeOutage && $pppUser->alamat) {
                         $activeOutage = Outage::where('owner_id', $ownerId)
                             ->whereIn('status', [Outage::STATUS_OPEN, Outage::STATUS_IN_PROGRESS])
-                            ->whereHas('affectedAreas', fn ($q) =>
-                                $q->where('area_type', 'keyword')
-                                   ->whereRaw('? LIKE CONCAT("%", label, "%")', [$pppUser->alamat])
+                            ->whereHas('affectedAreas', fn ($q) => $q->where('area_type', 'keyword')
+                                ->whereRaw('? LIKE CONCAT("%", label, "%")', [$pppUser->alamat])
                             )
                             ->latest('started_at')
                             ->first();
@@ -627,11 +627,11 @@ class WaWebhookController extends Controller
                     ? "\nEstimasi selesai: ".$activeOutage->estimated_resolved_at->format('d/m/Y H:i')
                     : '';
                 $statusLabel = $activeOutage->status === Outage::STATUS_IN_PROGRESS ? 'Sedang Diperbaiki' : 'Gangguan Aktif';
-                $statusUrl   = url('/status/'.$activeOutage->public_token);
+                $statusUrl = url('/status/'.$activeOutage->public_token);
 
                 return "⚠️ *Ada gangguan jaringan aktif di area Anda*\n\n"
                     ."Status: {$statusLabel}\n"
-                    ."Sejak: ".$activeOutage->started_at->format('d/m/Y H:i')
+                    .'Sejak: '.$activeOutage->started_at->format('d/m/Y H:i')
                     .$eta."\n\n"
                     ."Pantau progress perbaikan secara real-time di:\n{$statusUrl}\n\n"
                     .'Tim kami sedang bekerja memulihkan layanan. Mohon maaf atas ketidaknyamanannya. 🙏';
@@ -721,7 +721,7 @@ class WaWebhookController extends Controller
 
         if ($intent === 'check_package') {
             if (($customerContext['found'] ?? false) !== true) {
-                return "Untuk cek paket aktif, mohon kirim ID pelanggan Anda terlebih dahulu ya.";
+                return 'Untuk cek paket aktif, mohon kirim ID pelanggan Anda terlebih dahulu ya.';
             }
 
             $profileName = trim((string) ($customerContext['profile_name'] ?? ''));
@@ -765,7 +765,7 @@ class WaWebhookController extends Controller
                     ."- Invoice: {$invoice->invoice_number}\n"
                     ."- Nominal: {$total}\n"
                     ."- Link Bayar: {$paymentLink}\n\n"
-                    ."Setelah pembayaran terverifikasi, layanan otomatis diperpanjang.";
+                    .'Setelah pembayaran terverifikasi, layanan otomatis diperpanjang.';
             }
 
             $base = "Untuk perpanjang layanan, silakan hubungi CS kami {$displayName}.";
@@ -1069,8 +1069,8 @@ class WaWebhookController extends Controller
         string $message,
         array $customerContext,
         TenantSettings $settings,
-        WaGatewayService $service,
-        string $sender
+        string $sender,
+        string $provider
     ): ?string {
         $state = WaConversationState::query()
             ->where('conversation_id', $conversation->id)
@@ -1083,19 +1083,58 @@ class WaWebhookController extends Controller
         // Hapus state expired
         if ($state->isExpired()) {
             $state->delete();
+
             return null;
         }
 
         $reply = $this->advanceFlow($state, $message, $payload, $customerContext, $conversation, $ownerId, $settings);
 
         if ($reply !== '') {
-            $service->sendMessage($sender, $reply, [
+            $this->sendAutoReplyMessage($settings, $provider, $sender, $reply, [
                 'event' => 'auto_reply_outbound',
                 'intent' => 'flow_'.$state->flow,
             ]);
         }
 
         return $reply;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    protected function resolveConversationProvider(TenantSettings $settings, array $payload): string
+    {
+        $payloadProvider = strtolower(trim((string) ($payload['provider'] ?? '')));
+
+        if (in_array($payloadProvider, ['local', 'ycloud'], true)) {
+            return $payloadProvider;
+        }
+
+        return 'local';
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    protected function sendAutoReplyMessage(
+        TenantSettings $settings,
+        string $provider,
+        string $sender,
+        string $message,
+        array $context = []
+    ): bool {
+        if ($provider === 'ycloud') {
+            $service = YCloudWhatsAppService::forTenant($settings);
+
+            return (bool) ($service?->sendTextMessage($sender, $message)['ok'] ?? false);
+        }
+
+        $service = WaGatewayService::forTenant($settings);
+        if (! $service) {
+            return false;
+        }
+
+        return $service->sendMessage($sender, $message, $context);
     }
 
     protected function startFlow(string $flow, WaConversation $conversation, int $ownerId): void
@@ -1148,14 +1187,14 @@ class WaWebhookController extends Controller
         int $ownerId
     ): string {
         $displayName = trim((string) ($customerContext['name'] ?? '')) ?: 'Bapak/Ibu';
-        $collected   = $state->collected ?? [];
+        $collected = $state->collected ?? [];
 
         if ($state->step === 1) {
             // Step 1: kumpulkan deskripsi gangguan
             $collected['deskripsi'] = $message;
             $state->update([
-                'step'       => 2,
-                'collected'  => $collected,
+                'step' => 2,
+                'collected' => $collected,
                 'expires_at' => now()->addMinutes(30),
             ]);
 
@@ -1175,25 +1214,25 @@ class WaWebhookController extends Controller
                 : null;
 
             $deskripsi = trim((string) ($collected['deskripsi'] ?? '-'));
-            $durasi    = trim((string) ($collected['durasi_scope'] ?? $message));
+            $durasi = trim((string) ($collected['durasi_scope'] ?? $message));
 
             try {
                 $ticket = WaTicket::create([
-                    'owner_id'        => $ownerId,
+                    'owner_id' => $ownerId,
                     'conversation_id' => $conversation->id,
-                    'customer_type'   => $pppUser ? 'ppp' : null,
-                    'customer_id'     => $pppUser?->id,
-                    'title'           => 'Laporan Gangguan – '.($pppUser?->customer_name ?? $conversation->contact_name ?? $conversation->contact_phone),
-                    'description'     => "Gangguan: {$deskripsi}\n\nDurasi/scope: {$durasi}",
-                    'type'            => 'troubleshoot',
-                    'status'          => 'open',
-                    'priority'        => 'high',
+                    'customer_type' => $pppUser ? 'ppp' : null,
+                    'customer_id' => $pppUser?->id,
+                    'title' => 'Laporan Gangguan – '.($pppUser?->customer_name ?? $conversation->contact_name ?? $conversation->contact_phone),
+                    'description' => "Gangguan: {$deskripsi}\n\nDurasi/scope: {$durasi}",
+                    'type' => 'troubleshoot',
+                    'status' => 'open',
+                    'priority' => 'high',
                 ]);
 
                 $ticket->notes()->create([
                     'user_id' => null,
-                    'type'    => 'created',
-                    'meta'    => 'Dibuat otomatis dari laporan WA pelanggan.',
+                    'type' => 'created',
+                    'meta' => 'Dibuat otomatis dari laporan WA pelanggan.',
                 ]);
             } catch (\Throwable $e) {
                 Log::warning('advanceLaporGangguan: gagal buat WaTicket', ['error' => $e->getMessage()]);
@@ -1284,11 +1323,11 @@ class WaWebhookController extends Controller
 
             // Buat ticket note summary
             $summary = "Permintaan jadwal teknisi via WA:\n"
-                ."- Pelanggan: ".($collected['customer_name'] ?? '-')."\n"
-                ."- ID: ".($collected['customer_id'] ?? '-')."\n"
-                ."- Alamat: ".($collected['alamat'] ?? '-')."\n"
-                ."- Keluhan: ".($collected['keluhan'] ?? '-')."\n"
-                ."- Waktu tersedia: ".($collected['waktu'] ?? '-');
+                .'- Pelanggan: '.($collected['customer_name'] ?? '-')."\n"
+                .'- ID: '.($collected['customer_id'] ?? '-')."\n"
+                .'- Alamat: '.($collected['alamat'] ?? '-')."\n"
+                .'- Keluhan: '.($collected['keluhan'] ?? '-')."\n"
+                .'- Waktu tersedia: '.($collected['waktu'] ?? '-');
 
             // Simpan ke conversation sebagai catatan
             $conversation->update([
@@ -1299,10 +1338,10 @@ class WaWebhookController extends Controller
             $state->delete();
 
             return "Permintaan kunjungan teknisi {$displayName} sudah kami catat:\n"
-                ."- Alamat: ".($collected['alamat'] ?? '-')."\n"
-                ."- Keluhan: ".($collected['keluhan'] ?? '-')."\n"
-                ."- Waktu: ".($collected['waktu'] ?? '-')."\n\n"
-                ."Tim kami akan konfirmasi jadwal secepatnya. Terima kasih!";
+                .'- Alamat: '.($collected['alamat'] ?? '-')."\n"
+                .'- Keluhan: '.($collected['keluhan'] ?? '-')."\n"
+                .'- Waktu: '.($collected['waktu'] ?? '-')."\n\n"
+                .'Tim kami akan konfirmasi jadwal secepatnya. Terima kasih!';
         }
 
         return '';
@@ -1362,7 +1401,7 @@ class WaWebhookController extends Controller
             ."- Nomor HP: {$user->nomor_hp}\n"
             ."- Password: {$password}\n\n"
             ."⚠️ Jangan bagikan password ini kepada siapapun.\n"
-            ."Jika ingin ganti password, silakan login ke portal lalu pilih menu Ubah Password.";
+            .'Jika ingin ganti password, silakan login ke portal lalu pilih menu Ubah Password.';
     }
 
     /**
@@ -1499,7 +1538,7 @@ class WaWebhookController extends Controller
             $device = WaMultiSessionDevice::query()
                 ->where(function ($q) use ($candidates) {
                     $q->whereIn('session_id', $candidates)
-                      ->orWhereIn('wa_number', $candidates);
+                        ->orWhereIn('wa_number', $candidates);
                 })
                 ->orderByDesc('is_default')
                 ->first();
@@ -1609,7 +1648,7 @@ class WaWebhookController extends Controller
         }
 
         $conversation = WaConversation::firstOrCreate(
-            ['owner_id' => $ownerId, 'contact_phone' => $phone],
+            ['owner_id' => $ownerId, 'provider' => 'local', 'contact_phone' => $phone],
             ['contact_name' => $contactName, 'session_id' => $sessionId, 'status' => 'open']
         );
 
@@ -1628,14 +1667,17 @@ class WaWebhookController extends Controller
         WaChatMessage::create([
             'conversation_id' => $conversation->id,
             'owner_id' => $ownerId,
+            'provider' => 'local',
             'direction' => 'inbound',
             'message' => $messageText,
+            'message_type' => $mediaType ?: 'text',
             'media_type' => $mediaType,
             'media_path' => $mediaPath,
             'media_mime' => $mediaMime,
             'media_filename' => $mediaFilename,
             'sender_name' => $contactName,
             'wa_message_id' => $waMessageId,
+            'provider_message_id' => $waMessageId,
             'created_at' => now(),
         ]);
 
@@ -1646,15 +1688,15 @@ class WaWebhookController extends Controller
         // dan conversation tidak di-assign (jika di-assign, kirim hanya ke yang di-assign)
         try {
             $displayName = $conversation->contact_name ?? $phone;
-            $preview     = mb_substr($messageText ?? ($mediaType ? "[$mediaType]" : '[media]'), 0, 80);
-            $chatUrl     = route('wa-chat.index').'#conversation-'.$conversation->id;
-            $tag         = 'wa-msg-'.$conversation->id;
+            $preview = mb_substr($messageText ?? ($mediaType ? "[$mediaType]" : '[media]'), 0, 80);
+            $chatUrl = route('wa-chat.index').'#conversation-'.$conversation->id;
+            $tag = 'wa-msg-'.$conversation->id;
 
             if ($conversation->assigned_to_id) {
                 // Kirim hanya ke CS yang di-assign
-                $assignee = \App\Models\User::find($conversation->assigned_to_id);
+                $assignee = User::find($conversation->assigned_to_id);
                 if ($assignee) {
-                    \App\Services\PushNotificationService::sendToUser(
+                    PushNotificationService::sendToUser(
                         $assignee,
                         'WA dari '.$displayName,
                         $preview,
@@ -1663,7 +1705,7 @@ class WaWebhookController extends Controller
                 }
             } else {
                 // Broadcast ke semua CS/NOC/Admin tenant
-                \App\Services\PushNotificationService::sendToOwnerStaff(
+                PushNotificationService::sendToOwnerStaff(
                     $ownerId,
                     'WA dari '.$displayName,
                     $preview,

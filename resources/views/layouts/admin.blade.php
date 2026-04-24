@@ -22,6 +22,9 @@
         $isolatedUsersCount = 0;
         $monthlyRegistrationsCount = 0;
         $notificationTotal = 0;
+        $selfHostedUpdateAvailableCount = 0;
+        $selfHostedApplyFailedCount = 0;
+        $selfHostedHeartbeatStaleCount = 0;
         $vapidPublicKey = config('push.vapid.public_key', '');
         if (auth()->check()) {
             $tenantSettings = \App\Models\TenantSettings::getOrCreate(auth()->user()->effectiveOwnerId());
@@ -61,6 +64,17 @@
                 ->count();
 
             $notificationTotal = $isolatedUsersCount + $monthlyRegistrationsCount + $dueSoonCount;
+
+            if ($authUser->isSuperAdmin() && $isSelfHostedApp) {
+                $selfHostedUpdateSnapshot = app(\App\Services\SelfHostedUpdateStatusService::class)->snapshot();
+                $selfHostedHeartbeatSummary = app(\App\Services\SelfHostedHeartbeatService::class)->summary();
+
+                $selfHostedUpdateAvailableCount = ! empty($selfHostedUpdateSnapshot['update_available']) ? 1 : 0;
+                $selfHostedApplyFailedCount = ($selfHostedUpdateSnapshot['last_apply_status'] ?? null) === 'failed' ? 1 : 0;
+                $selfHostedHeartbeatStaleCount = ! empty($selfHostedHeartbeatSummary['is_stale']) ? 1 : 0;
+
+                $notificationTotal += $selfHostedUpdateAvailableCount + $selfHostedApplyFailedCount + $selfHostedHeartbeatStaleCount;
+            }
 
             // Untuk teknisi: ganti notifikasi dengan jumlah tiket aktif yang di-assign
             if ($authUser->role === 'teknisi') {
@@ -714,6 +728,20 @@
                             <span class="badge badge-warning">{{ $csTicketUpdateCount }}</span>
                         </a>
                         @endif
+                        @if(auth()->user()->isSuperAdmin() && $isSelfHostedApp)
+                        <a href="{{ route('super-admin.settings.app-update') }}" class="dropdown-item d-flex justify-content-between align-items-center">
+                            <span><i class="fas fa-cloud-download-alt text-warning mr-2"></i>Update Self-Hosted Tersedia</span>
+                            <span class="badge badge-warning">{{ $selfHostedUpdateAvailableCount }}</span>
+                        </a>
+                        <a href="{{ route('super-admin.settings.app-update') }}" class="dropdown-item d-flex justify-content-between align-items-center">
+                            <span><i class="fas fa-times-circle text-danger mr-2"></i>Apply Update Gagal</span>
+                            <span class="badge badge-danger">{{ $selfHostedApplyFailedCount }}</span>
+                        </a>
+                        <a href="{{ route('super-admin.settings.app-update') }}" class="dropdown-item d-flex justify-content-between align-items-center">
+                            <span><i class="fas fa-heartbeat text-secondary mr-2"></i>Heartbeat Self-Hosted Stale</span>
+                            <span class="badge badge-secondary">{{ $selfHostedHeartbeatStaleCount }}</span>
+                        </a>
+                        @endif
                         <a href="{{ route('ppp-users.index', ['filter_isolir' => 1]) }}" class="dropdown-item d-flex justify-content-between align-items-center">
                             <span><i class="fas fa-user-slash text-danger mr-2"></i>User Terisolir</span>
                             <span class="badge badge-danger">{{ $isolatedUsersCount }}</span>
@@ -1036,8 +1064,8 @@
                     </li>
                     @endif
                     @if(auth()->user()->isSuperAdmin() || in_array(auth()->user()->role, ['administrator', 'keuangan', 'teknisi'], true))
-                    <li class="nav-item has-treeview {{ request()->routeIs('reports.income') ? 'menu-open' : '' }}">
-                        <a href="#" class="nav-link {{ request()->routeIs('reports.income') ? 'active' : '' }}">
+                    <li class="nav-item has-treeview {{ request()->routeIs('reports.income', 'service-notes.*') ? 'menu-open' : '' }}">
+                        <a href="#" class="nav-link {{ request()->routeIs('reports.income', 'service-notes.*') ? 'active' : '' }}">
                             <i class="nav-icon fas fa-dollar-sign"></i>
                             <p>
                                 Data Keuangan
@@ -1073,6 +1101,12 @@
                                 <a href="{{ route('reports.income', ['report' => 'bhp_uso']) }}" class="nav-link {{ request()->routeIs('reports.income') && request()->query('report') === 'bhp_uso' ? 'active' : '' }}">
                                     <i class="far fa-circle nav-icon"></i>
                                     <p>Hitung BHP | USO</p>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="{{ route('service-notes.index') }}" class="nav-link {{ request()->routeIs('service-notes.*') ? 'active' : '' }}">
+                                    <i class="far fa-circle nav-icon"></i>
+                                    <p>Riwayat Nota Layanan</p>
                                 </a>
                             </li>
                         </ul>

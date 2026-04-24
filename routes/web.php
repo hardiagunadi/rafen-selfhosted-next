@@ -31,11 +31,12 @@ use App\Http\Controllers\PppUserController;
 use App\Http\Controllers\ProfileGroupController;
 use App\Http\Controllers\PushSubscriptionController;
 use App\Http\Controllers\RadiusAccountController;
+use App\Http\Controllers\SelfHostedInstallRegistrationController;
+use App\Http\Controllers\ServiceNoteController;
 use App\Http\Controllers\ShiftController;
 use App\Http\Controllers\SubscriptionController;
 use App\Http\Controllers\SubscriptionPlanController;
 use App\Http\Controllers\SuperAdminController;
-use App\Http\Controllers\SelfHostedInstallRegistrationController;
 use App\Http\Controllers\SuperAdminLicensePublicKeyController;
 use App\Http\Controllers\SuperAdminSelfHostedToolkitController;
 use App\Http\Controllers\SuperAdminTerminalController;
@@ -54,7 +55,9 @@ use App\Http\Controllers\WaTicketController;
 use App\Http\Controllers\WaWebhookController;
 use App\Http\Controllers\WgSettingsController;
 use App\Http\Controllers\WithdrawalController;
+use App\Http\Controllers\YCloudWhatsAppWebhookController;
 use App\Http\Middleware\SuperAdminMiddleware;
+use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
@@ -104,7 +107,7 @@ if (! $isSelfHostedApp) {
     // Public API — no auth required
     Route::get('api/public/plans', [SubscriptionController::class, 'publicPlans'])->name('api.public.plans');
     Route::post('api/self-hosted/install-registrations', SelfHostedInstallRegistrationController::class)
-        ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class])
+        ->withoutMiddleware([ValidateCsrfToken::class])
         ->name('api.self-hosted.install-registrations');
 }
 
@@ -315,7 +318,11 @@ Route::middleware($tenantAppMiddleware)->group(function () use (
     Route::get('ppp-users/{pppUser}/dialup-datatable', [PppUserController::class, 'dialupDatatable'])->name('ppp-users.dialup-datatable');
     Route::post('ppp-users/{pppUser}/add-invoice', [PppUserController::class, 'addInvoice'])->name('ppp-users.add-invoice');
     Route::post('ppp-users/{pppUser}/disconnect', [PppUserController::class, 'disconnect'])->name('ppp-users.disconnect');
+    Route::get('ppp-users/{pppUser}/nota-layanan', [PppUserController::class, 'notaLayanan'])->name('ppp-users.nota-layanan');
+    Route::post('ppp-users/{pppUser}/nota-layanan', [PppUserController::class, 'storeServiceNote'])->name('ppp-users.service-notes.store');
     Route::get('ppp-users/{pppUser}/nota-aktivasi', [PppUserController::class, 'notaAktivasi'])->name('ppp-users.nota-aktivasi');
+    Route::get('service-notes', [ServiceNoteController::class, 'index'])->name('service-notes.index');
+    Route::get('service-notes/{serviceNote}/print', [ServiceNoteController::class, 'print'])->name('service-notes.print');
     Route::resource('ppp-users', PppUserController::class);
     Route::get('odps/datatable', [OdpController::class, 'datatable'])->name('odps.datatable');
     Route::get('odps/generate-code', [OdpController::class, 'generateCode'])->name('odps.generate-code');
@@ -335,6 +342,7 @@ Route::middleware($tenantAppMiddleware)->group(function () use (
     });
     Route::get('vouchers/datatable', [VoucherController::class, 'datatable'])->name('vouchers.datatable');
     Route::delete('vouchers/bulk-destroy', [VoucherController::class, 'bulkDestroy'])->name('vouchers.bulk-destroy');
+    Route::post('vouchers/{voucher}/send-wa', [VoucherController::class, 'sendWa'])->name('vouchers.send-wa');
     Route::get('vouchers/{batch}/print', [VoucherController::class, 'printBatch'])->name('vouchers.print');
     Route::resource('vouchers', VoucherController::class);
     Route::get('help', [HelpController::class, 'index'])->name('help.index');
@@ -432,6 +440,8 @@ Route::middleware($tenantAppMiddleware)->group(function () use (
         Route::put('/wa', [TenantSettingsController::class, 'updateWa'])->name('update-wa');
         Route::post('/test-wa', [TenantSettingsController::class, 'testWa'])->name('test-wa');
         Route::post('/test-wa-meta', [TenantSettingsController::class, 'testWaMeta'])->name('test-wa-meta');
+        Route::post('/test-wa-ycloud', [TenantSettingsController::class, 'testWaYCloud'])->name('test-wa-ycloud');
+        Route::post('/fetch-ycloud-phone-numbers', [TenantSettingsController::class, 'fetchYCloudPhoneNumbers'])->name('fetch-ycloud-phone-numbers');
         Route::post('/test-template', [TenantSettingsController::class, 'testTemplate'])->name('test-template');
         Route::match(['GET', 'POST'], '/wa/session/{action}', [TenantSettingsController::class, 'sessionControl'])->name('wa-session-control');
         Route::post('/wa/service/{action}', [TenantSettingsController::class, 'serviceControl'])->name('wa-service-control');
@@ -474,6 +484,7 @@ Route::middleware($tenantAppMiddleware)->group(function () use (
         Route::get('/', [WaChatController::class, 'index'])->name('index');
         Route::get('/conversations', [WaChatController::class, 'conversations'])->name('conversations');
         Route::get('/conversations/{waConversation}/messages', [WaChatController::class, 'show'])->name('show');
+        Route::get('/messages/{waChatMessage}/media', [WaChatController::class, 'media'])->name('media');
         Route::post('/conversations/{waConversation}/reply', [WaChatController::class, 'reply'])->name('reply');
         Route::post('/conversations/{waConversation}/reply-image', [WaChatController::class, 'replyImage'])->name('reply-image');
         Route::post('/conversations/{waConversation}/resolve', [WaChatController::class, 'markResolved'])->name('resolve');
@@ -634,6 +645,7 @@ Route::match(['GET', 'POST'], '/webhook/{tenant}/{secret}/status', [WaWebhookCon
 // Meta WhatsApp Cloud API Webhook (no auth required)
 Route::get('/webhook/meta/whatsapp', [MetaWhatsAppWebhookController::class, 'verify'])->name('meta.whatsapp.webhook.verify');
 Route::post('/webhook/meta/whatsapp', [MetaWhatsAppWebhookController::class, 'receive'])->name('meta.whatsapp.webhook.receive');
+Route::post('/webhook/ycloud/whatsapp', [YCloudWhatsAppWebhookController::class, 'receive'])->name('ycloud.whatsapp.webhook.receive');
 
 // Portal Pelanggan PPPoE — tenant diidentifikasi dari subdomain (tmd.watumalang.online/portal/)
 Route::prefix('portal')->name('portal.')->group(function () {

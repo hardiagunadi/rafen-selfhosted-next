@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,9 @@ class WaConversation extends Model
 {
     protected $fillable = [
         'owner_id',
+        'provider',
         'session_id',
+        'provider_customer_key',
         'contact_phone',
         'contact_name',
         'assigned_to_id',
@@ -20,6 +23,8 @@ class WaConversation extends Model
         'bot_paused_until',
         'last_message',
         'last_message_at',
+        'last_inbound_at',
+        'service_window_expires_at',
         'unread_count',
     ];
 
@@ -27,9 +32,16 @@ class WaConversation extends Model
     {
         return [
             'last_message_at' => 'datetime',
+            'last_inbound_at' => 'datetime',
+            'service_window_expires_at' => 'datetime',
             'bot_paused_until' => 'datetime',
             'unread_count' => 'integer',
         ];
+    }
+
+    public function hasOpenServiceWindow(): bool
+    {
+        return $this->service_window_expires_at !== null && $this->service_window_expires_at->isFuture();
     }
 
     public function isBotPaused(): bool
@@ -64,6 +76,7 @@ class WaConversation extends Model
             if ($impersonatingId) {
                 return $query->where('owner_id', $impersonatingId);
             }
+
             return $query;
         }
 
@@ -72,11 +85,31 @@ class WaConversation extends Model
 
     public function updateFromIncoming(string $message): void
     {
-        $this->update([
+        $this->updateConversationState([
             'last_message' => mb_substr($message, 0, 500),
             'last_message_at' => now(),
+            'last_inbound_at' => now(),
+            'service_window_expires_at' => now()->addDay(),
             'status' => 'open',
             'unread_count' => $this->unread_count + 1,
         ]);
+    }
+
+    public function clearBotPause(): void
+    {
+        $this->update(['bot_paused_until' => null]);
+    }
+
+    public function pauseBotUntil(CarbonInterface $until): void
+    {
+        $this->update(['bot_paused_until' => $until]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    public function updateConversationState(array $attributes): void
+    {
+        $this->update($attributes);
     }
 }

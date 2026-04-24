@@ -14,6 +14,7 @@ class WaBlastLog extends Model
         'sent_by_id',
         'sent_by_name',
         'event',
+        'provider',
         'phone',
         'phone_normalized',
         'status',
@@ -24,13 +25,21 @@ class WaBlastLog extends Model
         'username',
         'customer_name',
         'ref_id',
+        'provider_message_id',
+        'delivery_status',
+        'pricing_metadata',
+        'template_name',
         'message',
         'created_at',
     ];
 
-    protected $casts = [
-        'created_at' => 'datetime',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'created_at' => 'datetime',
+            'pricing_metadata' => 'array',
+        ];
+    }
 
     public function owner(): BelongsTo
     {
@@ -44,8 +53,10 @@ class WaBlastLog extends Model
             if ($impersonatingId) {
                 return $query->where('owner_id', $impersonatingId);
             }
+
             return $query;
         }
+
         return $query->where('owner_id', $user->effectiveOwnerId());
     }
 }
